@@ -85,6 +85,10 @@ sampled_images = diffusion.sample(batch_size = 4)
 sampled_images.shape # (4, 3, 128, 128)
 ```
 
+## Todo
+
+- [ ] experiment with <a href="https://github.com/lucidrains/bidirectional-cross-attention/issues">bidirectional cross attention</a>
+
 ## Citations
 
 ```bibtex
