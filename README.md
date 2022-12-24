@@ -1,6 +1,6 @@
-<img src="./rin.png" width="500png"></img>
+<img src="./images/rin.png" width="500png"></img>
 
-<img src="./latent-self-conditioning.png" width="600px"></img>
+<img src="./images/latent-self-conditioning.png" width="600px"></img>
 
 ## Recurrent Interface Network (RIN) - Pytorch (wip)
 
