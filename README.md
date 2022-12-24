@@ -8,6 +8,8 @@ Implementation of <a href="https://arxiv.org/abs/2212.11972">Recurrent Interface
 
 The big surprise is that the generations can reach this level of fidelity. Will need to verify this on my own machine
 
+Additionally, we will try adding an extra linear attention on the main branch, in addition to the full self attention on the latents. Self conditioning will also be applied to the non-latent images in pixel-space. Let us see how far we can push this approach.
+
 ## Install
 
 ```bash
