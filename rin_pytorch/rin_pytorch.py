@@ -293,7 +293,7 @@ class RIN(nn.Module):
             nn.Linear(pixel_patch_dim * 2, dim)
         )
 
-        self.pos_emb = nn.Parameter(torch.randn(num_patches, dim))
+        self.axial_pos_emb = nn.Parameter(torch.randn(2, patch_height_width, dim) * 0.02)
 
         self.to_pixels = nn.Sequential(
             LayerNorm(dim),
@@ -302,6 +302,7 @@ class RIN(nn.Module):
         )
 
         self.latents = nn.Parameter(torch.randn(num_latents, dim))
+        nn.init.normal_(self.latents, std = 0.02)
 
         self.init_self_cond_latents = nn.Sequential(
             FeedForward(dim),
@@ -362,7 +363,9 @@ class RIN(nn.Module):
 
         patches = self.to_patches(x)
 
-        patches = patches + self.pos_emb
+        pos_emb_h, pos_emb_w = self.axial_pos_emb
+        pos_emb = rearrange(pos_emb_h, 'i d -> i 1 d') + rearrange(pos_emb_w, 'j d -> 1 j d')
+        patches = patches + rearrange(pos_emb, 'i j d -> (i j) d')
 
         # the recurrent interface network body
 
