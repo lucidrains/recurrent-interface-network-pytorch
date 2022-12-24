@@ -19,30 +19,33 @@ $ pip install rin-pytorch
 ## Usage
 
 ```python
-from rin_pytorch import RIN, Trainer, GaussianDiffusion
+from rin_pytorch import GaussianDiffusion, RIN, Trainer
 
 model = RIN(
-    dim = 32,
-    channels = 3,
-    dim_mults = (1, 2, 4, 8),
+    dim = 256,                  # model dimensions
+    image_size = 128,           # image size
+    patch_size = 8,             # patch size
+    num_latents = 128,          # number of latents. they used 256 in the paper
+    latent_self_attn_depth = 4, # number of latent self attention blocks per recurrent step, K in the paper
 ).cuda()
 
 diffusion = GaussianDiffusion(
     model,
     image_size = 128,
-    timesteps = 100,
-    use_ddim = True              # use ddim
+    use_ddim = False,
+    timesteps = 400,
+    train_prob_self_cond = 0.9  # how often to self condition on latents
 ).cuda()
 
 trainer = Trainer(
     diffusion,
-    '/path/to/your/data',             # path to your folder of images
-    results_folder = './results',     # where to save results
-    num_samples = 16,                 # number of samples
-    train_batch_size = 4,             # training batch size
-    gradient_accumulate_every = 4,    # gradient accumulation
-    train_lr = 1e-4,                  # learning rate
-    save_and_sample_every = 1000,     # how often to save and sample
+    '/home/phil/dl/data/flowers',
+    results_folder = './rin',
+    num_samples = 16,
+    train_batch_size = 4,
+    gradient_accumulate_every = 4,
+    train_lr = 1e-4,
+    save_and_sample_every = 1000,
     train_num_steps = 700000,         # total training steps
     ema_decay = 0.995,                # exponential moving average decay
 )
@@ -59,14 +62,18 @@ import torch
 from rin_pytorch import RIN, GaussianDiffusion
 
 model = RIN(
-    dim = 64,
-    dim_mults = (1, 2, 4, 8)
-)
+    dim = 256,                  # model dimensions
+    image_size = 128,           # image size
+    patch_size = 8,             # patch size
+    num_latents = 128,          # number of latents. they used 256 in the paper
+    latent_self_attn_depth = 4, # number of latent self attention blocks per recurrent step, K in the paper
+).cuda()
 
 diffusion = GaussianDiffusion(
     model,
     image_size = 128,
-    timesteps = 1000
+    timesteps = 1000,
+    train_prob_self_cond = 0.9
 )
 
 training_images = torch.randn(8, 3, 128, 128) # images are normalized from 0 to 1

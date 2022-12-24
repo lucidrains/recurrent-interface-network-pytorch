@@ -34,6 +34,9 @@ def default(val, d):
         return val
     return d() if callable(d) else d
 
+def divisible_by(numer, denom):
+    return (numer % denom) == 0
+
 def cycle(dl):
     while True:
         for data in dl:
@@ -97,33 +100,61 @@ class LinearAttention(nn.Module):
         self,
         dim,
         heads = 4,
-        dim_head = 32
+        dim_head = 32,
+        norm = False,
+        time_cond_dim = None
     ):
         super().__init__()
+        hidden_dim = dim_head * heads
         self.scale = dim_head ** -0.5
         self.heads = heads
-        hidden_dim = dim_head * heads
-        self.to_qkv = nn.Conv2d(dim, hidden_dim * 3, 1, bias = False)
+
+        self.time_cond = None
+
+        if exists(time_cond_dim):
+            self.time_cond = nn.Sequential(
+                nn.SiLU(),
+                nn.Linear(time_cond_dim, dim * 2),
+                Rearrange('b d -> b 1 d')
+            )
+
+            nn.init.zeros_(self.time_cond[-2].weight)
+            nn.init.zeros_(self.time_cond[-2].bias)
+
+        self.norm = LayerNorm(dim) if norm else nn.Identity()
+
+        self.to_qkv = nn.Linear(dim, hidden_dim * 3, bias = False)
 
         self.to_out = nn.Sequential(
-            nn.Conv2d(hidden_dim, dim, 1),
+            nn.Linear(hidden_dim, dim, bias = False),
             LayerNorm(dim)
         )
 
-    def forward(self, x):
-        b, c, h, w = x.shape
-        qkv = self.to_qkv(x).chunk(3, dim = 1)
-        q, k, v = map(lambda t: rearrange(t, 'b (h c) x y -> b h c (x y)', h = self.heads), qkv)
+    def forward(
+        self,
+        x,
+        time = None
+    ):
+        h = self.heads
+        x = self.norm(x)
 
-        q = q.softmax(dim = -2)
-        k = k.softmax(dim = -1)
+        if exists(self.time_cond):
+            assert exists(time)
+            scale, shift = self.time_cond(time).chunk(2, dim = -1)
+            x = (x * (scale + 1)) + shift
+
+        qkv = self.to_qkv(x).chunk(3, dim = -1)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
+
+        q = q.softmax(dim = -1)
+        k = k.softmax(dim = -2)
 
         q = q * self.scale
 
-        context = torch.einsum('b h d n, b h e n -> b h d e', k, v)
+        context = torch.einsum('b h n d, b h n e -> b h d e', k, v)
 
-        out = torch.einsum('b h d e, b h d n -> b h e n', context, q)
-        out = rearrange(out, 'b h c (x y) -> b (h c) x y', h = self.heads, x = h, y = w)
+        out = torch.einsum('b h d e, b h n d -> b h n e', context, q)
+        out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
 class Attention(nn.Module):
@@ -131,35 +162,102 @@ class Attention(nn.Module):
         self,
         dim,
         heads = 4,
-        dim_head = 32
+        dim_head = 32,
+        norm = False,
+        norm_context = False,
+        time_cond_dim = None
     ):
         super().__init__()
+        hidden_dim = dim_head * heads
+
+        self.time_cond = None
+
+        if exists(time_cond_dim):
+            self.time_cond = nn.Sequential(
+                nn.SiLU(),
+                nn.Linear(time_cond_dim, dim * 2),
+                Rearrange('b d -> b 1 d')
+            )
+
+            nn.init.zeros_(self.time_cond[-2].weight)
+            nn.init.zeros_(self.time_cond[-2].bias)
+
         self.scale = dim_head ** -0.5
         self.heads = heads
-        hidden_dim = dim_head * heads
-        self.to_q = nn.Conv2d(dim, hidden_dim, 1, bias = False)
-        self.to_kv = nn.Conv2d(dim, hidden_dim * 2, 1, bias = False)
-        self.to_out = nn.Conv2d(hidden_dim, dim, 1)
+
+        self.norm = LayerNorm(dim) if norm else nn.Identity()
+        self.norm_context = LayerNorm(dim) if norm_context else nn.Identity()
+
+        self.to_q = nn.Linear(dim, hidden_dim, bias = False)
+        self.to_kv = nn.Linear(dim, hidden_dim * 2, bias = False)
+        self.to_out = nn.Linear(hidden_dim, dim, bias = False)
 
     def forward(
         self,
         x,
-        context = None
+        context = None,
+        time = None
     ):
-        b, c, h, w = x.shape
+        h = self.heads
+        has_context = exists(context)
+
         context = default(context, x)
 
-        qkv = (self.to_q(x), *self.to_kv(context).chunk(2, dim = 1))
-        q, k, v = map(lambda t: rearrange(t, 'b (h c) x y -> b h c (x y)', h = self.heads), qkv)
+        x = self.norm(x)
+
+        if exists(self.time_cond):
+            assert exists(time)
+            scale, shift = self.time_cond(time).chunk(2, dim = -1)
+            x = (x * (scale + 1)) + shift
+
+        if has_context:
+            context = self.norm_context(context)
+
+        qkv = (self.to_q(x), *self.to_kv(context).chunk(2, dim = -1))
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
 
         q = q * self.scale
 
-        sim = einsum('b h d i, b h d j -> b h i j', q, k)
+        sim = einsum('b h i d, b h j d -> b h i j', q, k)
         attn = sim.softmax(dim = -1)
 
-        out = einsum('b h i j, b h d j -> b h i d', attn, v)
-        out = rearrange(out, 'b h (x y) d -> b (h d) x y', x = h, y = w)
+        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+        out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
+
+class FeedForward(nn.Module):
+    def __init__(self, dim, mult = 4, time_cond_dim = None):
+        super().__init__()
+        self.norm = LayerNorm(dim)
+
+        self.time_cond = None
+
+        if exists(time_cond_dim):
+            self.time_cond = nn.Sequential(
+                nn.SiLU(),
+                nn.Linear(time_cond_dim, dim * 2),
+                Rearrange('b d -> b 1 d')
+            )
+
+            nn.init.zeros_(self.time_cond[-2].weight)
+            nn.init.zeros_(self.time_cond[-2].bias)
+
+        inner_dim = int(dim * mult)
+        self.net = nn.Sequential(
+            nn.Linear(dim, inner_dim),
+            nn.GELU(),
+            nn.Linear(inner_dim, dim)
+        )
+
+    def forward(self, x, time = None):
+        x = self.norm(x)
+
+        if exists(self.time_cond):
+            assert exists(time)
+            scale, shift = self.time_cond(time).chunk(2, dim = -1)
+            x = (x * (scale + 1)) + shift
+
+        return self.net(x)
 
 class FiLM(nn.Module):
     def __init__(
@@ -188,33 +286,28 @@ class RIN(nn.Module):
     def __init__(
         self,
         dim,
-        init_dim = None,
-        dim_mults=(1, 2, 4, 8),
+        image_size,
+        patch_size = 16,
         channels = 3,
-        resnet_block_groups = 8,
-        learned_sinusoidal_dim = 16
+        depth = 6,                      # weight tied depth. weight tied layers basically is recurrent, with latents as hiddens
+        latent_self_attn_depth = 2,     # how many self attentions for the latent per each round of cross attending from pixel space to latents and back
+        num_latents = 256,              # they still had to use a fair amount of latents for good results (256), in line with the Perceiver line of papers from Deepmind
+        learned_sinusoidal_dim = 16,
+        **attn_kwargs
     ):
         super().__init__()
+        assert divisible_by(image_size, patch_size)
 
-        # determine dimensions
+        self.channels = channels # times 2 due to self-conditioning
 
-        self.channels = channels
+        patch_height_width = image_size // patch_size
+        num_patches = patch_height_width ** 2
+        pixel_patch_dim = channels * (patch_size ** 2)
 
-        input_channels = channels * 2
-
-        init_dim = default(init_dim, dim)
-        self.init_conv = nn.Conv2d(input_channels, init_dim, 7, padding = 3)
-
-        dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
-        in_out = list(zip(dims[:-1], dims[1:]))
-
-        block_klass = partial(ResnetBlock, groups = resnet_block_groups)
-
-        # time embeddings
-
-        time_dim = dim * 4
+        # time conditioning
 
         sinu_pos_emb = LearnedSinusoidalPosEmb(learned_sinusoidal_dim)
+        time_dim = dim * 4
         fourier_dim = learned_sinusoidal_dim + 1
 
         self.time_mlp = nn.Sequential(
@@ -224,80 +317,114 @@ class RIN(nn.Module):
             nn.Linear(time_dim, time_dim)
         )
 
-        # layers
+        # pixels to patch and back
 
-        self.downs = nn.ModuleList([])
-        self.ups = nn.ModuleList([])
-        num_resolutions = len(in_out)
+        self.to_patches = nn.Sequential(
+            Rearrange('b c (h p1) (w p2) -> b (h w) (c p1 p2)', p1 = patch_size, p2 = patch_size),
+            nn.Linear(pixel_patch_dim * 2, dim)
+        )
 
-        for ind, (dim_in, dim_out) in enumerate(in_out):
-            is_last = ind >= (num_resolutions - 1)
+        self.pos_emb = nn.Parameter(torch.randn(num_patches, dim))
 
-            self.downs.append(nn.ModuleList([
-                block_klass(dim_in, dim_in, time_emb_dim = time_dim),
-                block_klass(dim_in, dim_in, time_emb_dim = time_dim),
-                Residual(PreNorm(dim_in, LinearAttention(dim_in))),
-                Downsample(dim_in, dim_out) if not is_last else nn.Conv2d(dim_in, dim_out, 3, padding = 1)
+        self.to_pixels = nn.Sequential(
+            LayerNorm(dim),
+            nn.Linear(dim, pixel_patch_dim),
+            Rearrange('b (h w) (c p1 p2) -> b c (h p1) (w p2)', p1 = patch_size, p2 = patch_size, h = patch_height_width)
+        )
+
+        self.latents = nn.Parameter(torch.randn(num_latents, dim))
+
+        self.init_self_cond_latents = nn.Sequential(
+            FeedForward(dim),
+            LayerNorm(dim)
+        )
+
+        nn.init.zeros_(self.init_self_cond_latents[-1].gamma)
+
+        # the main RIN body parameters  - another attention is all you need moment
+
+        self.depth = depth
+
+        attn_kwargs = {**attn_kwargs, 'time_cond_dim': time_dim}
+
+        self.latents_attend_to_patches = Attention(dim, norm = True, norm_context = True, **attn_kwargs)
+
+        self.latent_self_attns = nn.ModuleList([])
+        for _ in range(latent_self_attn_depth):
+            self.latent_self_attns.append(nn.ModuleList([
+                Attention(dim, norm = True, **attn_kwargs),
+                FeedForward(dim)
             ]))
 
-        mid_dim = dims[-1]
-        self.mid_block1 = block_klass(mid_dim, mid_dim, time_emb_dim = time_dim)
-        self.mid_attn = Residual(PreNorm(mid_dim, Attention(mid_dim)))
-        self.mid_block2 = block_klass(mid_dim, mid_dim, time_emb_dim = time_dim)
+        self.patches_self_attn = LinearAttention(dim, norm = True, **attn_kwargs)
+        self.patches_self_attn_ff = FeedForward(dim)
 
-        for ind, (dim_in, dim_out) in enumerate(reversed(in_out)):
-            is_last = ind == (len(in_out) - 1)
+        self.patches_attend_to_latents = Attention(dim, norm = True, norm_context = True, **attn_kwargs)
+        self.patches_cross_attn_ff = FeedForward(dim)
 
-            self.ups.append(nn.ModuleList([
-                block_klass(dim_out + dim_in, dim_out, time_emb_dim = time_dim),
-                block_klass(dim_out + dim_in, dim_out, time_emb_dim = time_dim),
-                Residual(PreNorm(dim_out, LinearAttention(dim_out))),
-                Upsample(dim_out, dim_in) if not is_last else  nn.Conv2d(dim_out, dim_in, 3, padding = 1)
-            ]))
-
-        self.final_res_block = block_klass(dim * 2, dim, time_emb_dim = time_dim)
-        self.final_conv = nn.Conv2d(dim, channels, 1)
-
-    def forward(self, x, time, x_self_cond = None):
+    def forward(
+        self,
+        x,
+        time,
+        x_self_cond = None,
+        latent_self_cond = None,
+        return_latents = False
+    ):
+        batch = x.shape[0]
 
         x_self_cond = default(x_self_cond, lambda: torch.zeros_like(x))
+
         x = torch.cat((x_self_cond, x), dim = 1)
 
-        x = self.init_conv(x)
-        r = x.clone()
+        # prepare time conditioning
 
         t = self.time_mlp(time)
 
-        h = []
+        # prepare latents
 
-        for block1, block2, attn, downsample in self.downs:
-            x = block1(x, t)
-            h.append(x)
+        latents = repeat(self.latents, 'n d -> b n d', b = batch)
 
-            x = block2(x, t)
-            x = attn(x)
-            h.append(x)
+        # the warm starting of latents as in the paper
 
-            x = downsample(x)
+        if exists(latent_self_cond):
+            latents = latents + self.init_self_cond_latents(latent_self_cond)
 
-        x = self.mid_block1(x, t)
-        x = self.mid_attn(x)
-        x = self.mid_block2(x, t)
+        # to patches
 
-        for block1, block2, attn, upsample in self.ups:
-            x = torch.cat((x, h.pop()), dim = 1)
-            x = block1(x, t)
+        patches = self.to_patches(x)
 
-            x = torch.cat((x, h.pop()), dim = 1)
-            x = block2(x, t)
-            x = attn(x)
+        # the recurrent interface network body
 
-            x = upsample(x)
+        for _ in range(self.depth):
+            # latents extract or cluster information from the patches
 
-        x = torch.cat((x, r), dim = 1)
+            latents = self.latents_attend_to_patches(latents, patches, time = t) + latents
 
-        x = self.final_res_block(x, t)
-        return self.final_conv(x)
+            # latent self attention
+
+            for attn, ff in self.latent_self_attns:
+                latents = attn(latents, time = t) + latents
+                latents = ff(latents, time = t) + latents
+
+            # additional patches self attention with linear attention
+
+            patches = self.patches_self_attn(patches, time = t) + patches
+            patches = self.patches_self_attn_ff(patches) + patches
+
+            # patches attend to the latents
+
+            patches = self.latents_attend_to_patches(patches, latents, time = t) + patches
+
+            patches = self.patches_cross_attn_ff(patches, time = t) + patches
+
+        # to pixels
+
+        pixels = self.to_pixels(patches)
+
+        if not return_latents:
+            return pixels
+
+        return pixels, latents
 
 # normalize and unnormalize image
 
@@ -347,7 +474,8 @@ class GaussianDiffusion(nn.Module):
         use_ddim = False,
         noise_schedule = 'sigmoid',
         schedule_kwargs: dict = dict(),
-        time_difference = 0.
+        time_difference = 0.,
+        train_prob_self_cond = 0.9
     ):
         super().__init__()
         self.model = model
@@ -374,6 +502,10 @@ class GaussianDiffusion(nn.Module):
 
         self.time_difference = time_difference
 
+        # probability for self conditioning during training
+
+        self.train_prob_self_cond = train_prob_self_cond
+
     @property
     def device(self):
         return next(self.model.parameters()).device
@@ -396,6 +528,7 @@ class GaussianDiffusion(nn.Module):
         img = torch.randn(shape, device=device)
 
         x_start = None
+        last_latents = None
 
         for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step', total = self.timesteps):
 
@@ -407,7 +540,7 @@ class GaussianDiffusion(nn.Module):
 
             # get predicted x0
 
-            x_start = self.model(img, noise_cond, x_start)
+            x_start, last_latents = self.model(img, noise_cond, x_start, last_latents, return_latents = True)
 
             # clip x0
 
@@ -455,6 +588,7 @@ class GaussianDiffusion(nn.Module):
         img = torch.randn(shape, device = device)
 
         x_start = None
+        last_latents = None
 
         for times, times_next in tqdm(time_pairs, desc = 'sampling loop time step'):
 
@@ -474,7 +608,7 @@ class GaussianDiffusion(nn.Module):
 
             # predict x0
 
-            x_start = self.model(img, log_snr, x_start)
+            x_start, last_latents = self.model(img, log_snr, x_start, last_latents, return_latents = True)
 
             # clip x0
 
@@ -518,18 +652,20 @@ class GaussianDiffusion(nn.Module):
 
         noised_img = alpha * img + sigma * noise
 
-        # if doing self-conditioning, 50% of the time, predict x_start from current set of times
-        # and condition with unet with that
-        # this technique will slow down training by 25%, but seems to lower FID significantly
+        # in the paper, they had to use a really high probability of latent self conditioning, up to 90% of the time
+        # slight drawback
 
-        self_cond = None
-        if random() < 0.5:
+        self_cond = self_latents = None
+
+        if random() < self.train_prob_self_cond:
             with torch.no_grad():
-                self_cond = self.model(noised_img, noise_level).detach_()
+                self_cond, self_latents = self.model(noised_img, noise_level, return_latents = True)
+                self_cond = self_cond.detach()
+                self_latents = self_latents.detach()
 
         # predict and take gradient step
 
-        pred = self.model(noised_img, noise_level, self_cond)
+        pred = self.model(noised_img, noise_level, self_cond, self_latents)
 
         return F.mse_loss(pred, img)
 
