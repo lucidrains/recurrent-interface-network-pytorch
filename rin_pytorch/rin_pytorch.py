@@ -215,6 +215,22 @@ class Attention(nn.Module):
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
+class PEG(nn.Module):
+    def __init__(
+        self,
+        dim
+    ):
+        super().__init__()
+        self.ds_conv = nn.Conv2d(dim, dim, 3, padding = 1, groups = dim)
+
+    def forward(self, x):
+        b, n, d = x.shape
+        hw = int(math.sqrt(n))
+        x = rearrange(x, 'b (h w) d -> b d h w', h = hw)
+        x = self.ds_conv(x)
+        x = rearrange(x, 'b d h w -> b (h w) d')
+        return x
+
 class FeedForward(nn.Module):
     def __init__(self, dim, mult = 4, time_cond_dim = None):
         super().__init__()
@@ -326,6 +342,7 @@ class RIN(nn.Module):
                 FeedForward(dim)
             ]))
 
+        self.patches_peg = PEG(dim)
         self.patches_self_attn = LinearAttention(dim, norm = True, **attn_kwargs)
         self.patches_self_attn_ff = FeedForward(dim)
 
@@ -370,6 +387,8 @@ class RIN(nn.Module):
         # the recurrent interface network body
 
         for _ in range(self.depth):
+            patches = self.patches_peg(patches) + patches
+
             # latents extract or cluster information from the patches
 
             latents = self.latents_attend_to_patches(latents, patches, time = t) + latents
