@@ -58,16 +58,6 @@ def convert_image_to(img_type, image):
         return image.convert(img_type)
     return image
 
-# small helper modules
-
-class Residual(nn.Module):
-    def __init__(self, fn):
-        super().__init__()
-        self.fn = fn
-
-    def forward(self, x, *args, **kwargs):
-        return self.fn(x, *args, **kwargs) + x
-
 # use layernorm without bias, more stable
 
 class LayerNorm(nn.Module):
@@ -258,27 +248,6 @@ class FeedForward(nn.Module):
             x = (x * (scale + 1)) + shift
 
         return self.net(x)
-
-class FiLM(nn.Module):
-    def __init__(
-        self,
-        dim,
-        hidden_dim
-    ):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(dim, hidden_dim * 4),
-            nn.SiLU(),
-            nn.Linear(hidden_dim * 4, hidden_dim * 2)
-        )
-
-        nn.init.zeros_(self.net[-1].weight)
-        nn.init.zeros_(self.net[-1].bias)
-
-    def forward(self, conditions, hiddens):
-        scale, shift = self.net(conditions).chunk(2, dim = -1)        
-        scale, shift = map(lambda t: rearrange(t, 'b d -> b 1 d'), (scale, shift))
-        return hiddens * (scale + 1) + shift
 
 # model
 
