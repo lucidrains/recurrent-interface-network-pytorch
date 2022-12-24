@@ -18,8 +18,14 @@ setup(
     'image and video generation'
   ],
   install_requires=[
+    'accelerate',
+    'beartype',
+    'ema-pytorch',
     'einops>=0.6',
-    'torch>=1.6',
+    'pillow',
+    'torch>=1.12.0',
+    'torchvision',
+    'tqdm'
   ],
   classifiers=[
     'Development Status :: 4 - Beta',
