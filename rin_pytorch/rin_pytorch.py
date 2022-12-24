@@ -362,6 +362,8 @@ class RIN(nn.Module):
 
         patches = self.to_patches(x)
 
+        patches = patches + self.pos_emb
+
         # the recurrent interface network body
 
         for _ in range(self.depth):

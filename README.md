@@ -88,6 +88,7 @@ sampled_images.shape # (4, 3, 128, 128)
 ## Todo
 
 - [ ] experiment with <a href="https://github.com/lucidrains/bidirectional-cross-attention/issues">bidirectional cross attention</a>
+- [ ] add ability to use 2d sinusoidal pos emb, from simple vit paper
 
 ## Citations
 
