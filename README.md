@@ -8,7 +8,15 @@ Implementation of <a href="https://arxiv.org/abs/2212.11972">Recurrent Interface
 
 The big surprise is that the generations can reach this level of fidelity. Will need to verify this on my own machine
 
-Additionally, we will try adding an extra linear attention on the main branch, in addition to the full self attention on the latents. Self conditioning will also be applied to the non-latent images in pixel-space. Let us see how far we can push this approach.
+Additionally, we will try adding an extra linear attention on the main branch as well as self conditioning in the pixel-space.
+
+Update: 
+
+<img src="./images/sample.png" width="300px"></img>
+
+*130k steps*
+
+It works but the more I think about the paper, the less excited I am. There are a number of issues with the RIN / ISAB architecture. However I think the new sigmoid noise schedule remains interesting as well as the new concept of being able to self-condition on any hidden state of the network.
 
 ## Appreciation
 
@@ -29,6 +37,7 @@ model = RIN(
     dim = 256,                  # model dimensions
     image_size = 128,           # image size
     patch_size = 8,             # patch size
+    depth = 6,                  # recurrent depth
     num_latents = 128,          # number of latents. they used 256 in the paper
     latent_self_attn_depth = 4, # number of latent self attention blocks per recurrent step, K in the paper
 ).cuda()
