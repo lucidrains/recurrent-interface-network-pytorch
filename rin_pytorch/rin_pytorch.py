@@ -267,6 +267,57 @@ class FeedForward(nn.Module):
 
 # model
 
+class RINBlock(nn.Module):
+    def __init__(
+        self,
+        dim,
+        latent_self_attn_depth,
+        **attn_kwargs
+    ):
+        super().__init__()
+
+        self.latents_attend_to_patches = Attention(dim, norm = True, norm_context = True, **attn_kwargs)
+
+        self.latent_self_attns = nn.ModuleList([])
+        for _ in range(latent_self_attn_depth):
+            self.latent_self_attns.append(nn.ModuleList([
+                Attention(dim, norm = True, **attn_kwargs),
+                FeedForward(dim)
+            ]))
+
+        self.patches_peg = PEG(dim)
+        self.patches_self_attn = LinearAttention(dim, norm = True, **attn_kwargs)
+        self.patches_self_attn_ff = FeedForward(dim)
+
+        self.patches_attend_to_latents = Attention(dim, norm = True, norm_context = True, **attn_kwargs)
+        self.patches_cross_attn_ff = FeedForward(dim)
+
+    def forward(self, patches, latents, t):
+        patches = self.patches_peg(patches) + patches
+
+        # latents extract or cluster information from the patches
+
+        latents = self.latents_attend_to_patches(latents, patches, time = t) + latents
+
+        # latent self attention
+
+        for attn, ff in self.latent_self_attns:
+            latents = attn(latents, time = t) + latents
+            latents = ff(latents, time = t) + latents
+
+        # additional patches self attention with linear attention
+
+        patches = self.patches_self_attn(patches, time = t) + patches
+        patches = self.patches_self_attn_ff(patches) + patches
+
+        # patches attend to the latents
+
+        patches = self.latents_attend_to_patches(patches, latents, time = t) + patches
+
+        patches = self.patches_cross_attn_ff(patches, time = t) + patches
+
+        return patches, latents
+
 class RIN(nn.Module):
     def __init__(
         self,
@@ -274,7 +325,7 @@ class RIN(nn.Module):
         image_size,
         patch_size = 16,
         channels = 3,
-        depth = 6,                      # weight tied depth. weight tied layers basically is recurrent, with latents as hiddens
+        depth = 6,                      # number of RIN blocks
         latent_self_attn_depth = 2,     # how many self attentions for the latent per each round of cross attending from pixel space to latents and back
         num_latents = 256,              # they still had to use a fair amount of latents for good results (256), in line with the Perceiver line of papers from Deepmind
         learned_sinusoidal_dim = 16,
@@ -329,25 +380,9 @@ class RIN(nn.Module):
 
         # the main RIN body parameters  - another attention is all you need moment
 
-        self.depth = depth
-
         attn_kwargs = {**attn_kwargs, 'time_cond_dim': time_dim}
 
-        self.latents_attend_to_patches = Attention(dim, norm = True, norm_context = True, **attn_kwargs)
-
-        self.latent_self_attns = nn.ModuleList([])
-        for _ in range(latent_self_attn_depth):
-            self.latent_self_attns.append(nn.ModuleList([
-                Attention(dim, norm = True, **attn_kwargs),
-                FeedForward(dim)
-            ]))
-
-        self.patches_peg = PEG(dim)
-        self.patches_self_attn = LinearAttention(dim, norm = True, **attn_kwargs)
-        self.patches_self_attn_ff = FeedForward(dim)
-
-        self.patches_attend_to_latents = Attention(dim, norm = True, norm_context = True, **attn_kwargs)
-        self.patches_cross_attn_ff = FeedForward(dim)
+        self.blocks = nn.ModuleList([RINBlock(dim, latent_self_attn_depth = latent_self_attn_depth, **attn_kwargs) for _ in range(depth)])
 
     def forward(
         self,
@@ -386,29 +421,8 @@ class RIN(nn.Module):
 
         # the recurrent interface network body
 
-        for _ in range(self.depth):
-            patches = self.patches_peg(patches) + patches
-
-            # latents extract or cluster information from the patches
-
-            latents = self.latents_attend_to_patches(latents, patches, time = t) + latents
-
-            # latent self attention
-
-            for attn, ff in self.latent_self_attns:
-                latents = attn(latents, time = t) + latents
-                latents = ff(latents, time = t) + latents
-
-            # additional patches self attention with linear attention
-
-            patches = self.patches_self_attn(patches, time = t) + patches
-            patches = self.patches_self_attn_ff(patches) + patches
-
-            # patches attend to the latents
-
-            patches = self.latents_attend_to_patches(patches, latents, time = t) + patches
-
-            patches = self.patches_cross_attn_ff(patches, time = t) + patches
+        for block in self.blocks:
+            patches, latents = block(patches, latents, t)
 
         # to pixels
 

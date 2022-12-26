@@ -37,7 +37,7 @@ model = RIN(
     dim = 256,                  # model dimensions
     image_size = 128,           # image size
     patch_size = 8,             # patch size
-    depth = 6,                  # recurrent depth
+    depth = 6,                  # depth
     num_latents = 128,          # number of latents. they used 256 in the paper
     latent_self_attn_depth = 4, # number of latent self attention blocks per recurrent step, K in the paper
 ).cuda()
@@ -78,6 +78,7 @@ model = RIN(
     dim = 256,                  # model dimensions
     image_size = 128,           # image size
     patch_size = 8,             # patch size
+    depth = 6,                  # depth
     num_latents = 128,          # number of latents. they used 256 in the paper
     latent_self_attn_depth = 4, # number of latent self attention blocks per recurrent step, K in the paper
 ).cuda()
