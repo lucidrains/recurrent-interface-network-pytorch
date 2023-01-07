@@ -52,8 +52,7 @@ diffusion = GaussianDiffusion(
 
 trainer = Trainer(
     diffusion,
-    '/home/phil/dl/data/flowers',
-    results_folder = './rin',
+    '/path/to/your/images',
     num_samples = 16,
     train_batch_size = 4,
     gradient_accumulate_every = 4,
