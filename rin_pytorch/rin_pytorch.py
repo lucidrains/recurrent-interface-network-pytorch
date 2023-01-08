@@ -278,6 +278,7 @@ class RINBlock(nn.Module):
         dim,
         latent_self_attn_depth,
         dim_latent = None,
+        final_norm = True,
         **attn_kwargs
     ):
         super().__init__()
@@ -291,6 +292,8 @@ class RINBlock(nn.Module):
                 Attention(dim_latent, norm = True, **attn_kwargs),
                 FeedForward(dim_latent)
             ]))
+
+        self.latent_final_norm = LayerNorm(dim_latent) if final_norm else nn.Identity()
 
         self.patches_peg = PEG(dim)
         self.patches_self_attn = LinearAttention(dim, norm = True, **attn_kwargs)
@@ -323,6 +326,7 @@ class RINBlock(nn.Module):
 
         patches = self.patches_cross_attn_ff(patches, time = t) + patches
 
+        latents = self.latent_final_norm(latents)
         return patches, latents
 
 class RIN(nn.Module):
