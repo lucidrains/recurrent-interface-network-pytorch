@@ -10,13 +10,7 @@ The big surprise is that the generations can reach this level of fidelity. Will 
 
 Additionally, we will try adding an extra linear attention on the main branch as well as self conditioning in the pixel-space.
 
-Update: 
-
-<img src="./images/sample.png" width="300px"></img>
-
-*130k steps*
-
-It works but the more I think about the paper, the less excited I am. There are a number of issues with the RIN / ISAB architecture. However I think the new sigmoid noise schedule remains interesting as well as the new concept of being able to self-condition on any hidden state of the network.
+The insight of being able to self-condition on any hidden state of the network as well as the newly proposed sigmoid noise schedule are the two main findings.
 
 ## Appreciation
 
@@ -39,6 +33,7 @@ model = RIN(
     patch_size = 8,             # patch size
     depth = 6,                  # depth
     num_latents = 128,          # number of latents. they used 256 in the paper
+    dim_latent = 512,           # can be greater than the image dimension (dim) for greater capacity
     latent_self_attn_depth = 4, # number of latent self attention blocks per recurrent step, K in the paper
 ).cuda()
 

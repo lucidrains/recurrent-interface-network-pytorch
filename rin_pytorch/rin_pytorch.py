@@ -151,6 +151,7 @@ class Attention(nn.Module):
     def __init__(
         self,
         dim,
+        dim_context = None,
         heads = 4,
         dim_head = 32,
         norm = False,
@@ -159,6 +160,7 @@ class Attention(nn.Module):
     ):
         super().__init__()
         hidden_dim = dim_head * heads
+        dim_context = default(dim_context, dim)
 
         self.time_cond = None
 
@@ -176,10 +178,10 @@ class Attention(nn.Module):
         self.heads = heads
 
         self.norm = LayerNorm(dim) if norm else nn.Identity()
-        self.norm_context = LayerNorm(dim) if norm_context else nn.Identity()
+        self.norm_context = LayerNorm(dim_context) if norm_context else nn.Identity()
 
         self.to_q = nn.Linear(dim, hidden_dim, bias = False)
-        self.to_kv = nn.Linear(dim, hidden_dim * 2, bias = False)
+        self.to_kv = nn.Linear(dim_context, hidden_dim * 2, bias = False)
         self.to_out = nn.Linear(hidden_dim, dim, bias = False)
 
     def forward(
@@ -192,6 +194,9 @@ class Attention(nn.Module):
         has_context = exists(context)
 
         context = default(context, x)
+
+        if x.shape[-1] != self.norm.gamma.shape[-1]:
+            print(context.shape, x.shape, self.norm.gamma.shape)
 
         x = self.norm(x)
 
@@ -272,24 +277,26 @@ class RINBlock(nn.Module):
         self,
         dim,
         latent_self_attn_depth,
+        dim_latent = None,
         **attn_kwargs
     ):
         super().__init__()
+        dim_latent = default(dim_latent, dim)
 
-        self.latents_attend_to_patches = Attention(dim, norm = True, norm_context = True, **attn_kwargs)
+        self.latents_attend_to_patches = Attention(dim_latent, dim_context = dim, norm = True, norm_context = True, **attn_kwargs)
 
         self.latent_self_attns = nn.ModuleList([])
         for _ in range(latent_self_attn_depth):
             self.latent_self_attns.append(nn.ModuleList([
-                Attention(dim, norm = True, **attn_kwargs),
-                FeedForward(dim)
+                Attention(dim_latent, norm = True, **attn_kwargs),
+                FeedForward(dim_latent)
             ]))
 
         self.patches_peg = PEG(dim)
         self.patches_self_attn = LinearAttention(dim, norm = True, **attn_kwargs)
         self.patches_self_attn_ff = FeedForward(dim)
 
-        self.patches_attend_to_latents = Attention(dim, norm = True, norm_context = True, **attn_kwargs)
+        self.patches_attend_to_latents = Attention(dim, dim_context = dim_latent, norm = True, norm_context = True, **attn_kwargs)
         self.patches_cross_attn_ff = FeedForward(dim)
 
     def forward(self, patches, latents, t):
@@ -312,7 +319,7 @@ class RINBlock(nn.Module):
 
         # patches attend to the latents
 
-        patches = self.latents_attend_to_patches(patches, latents, time = t) + patches
+        patches = self.patches_attend_to_latents(patches, latents, time = t) + patches
 
         patches = self.patches_cross_attn_ff(patches, time = t) + patches
 
@@ -327,12 +334,14 @@ class RIN(nn.Module):
         channels = 3,
         depth = 6,                      # number of RIN blocks
         latent_self_attn_depth = 2,     # how many self attentions for the latent per each round of cross attending from pixel space to latents and back
+        dim_latent = None,              # will default to image dim (dim)
         num_latents = 256,              # they still had to use a fair amount of latents for good results (256), in line with the Perceiver line of papers from Deepmind
         learned_sinusoidal_dim = 16,
         **attn_kwargs
     ):
         super().__init__()
         assert divisible_by(image_size, patch_size)
+        dim_latent = default(dim_latent, dim)
 
         self.channels = channels # times 2 due to self-conditioning
 
@@ -368,12 +377,12 @@ class RIN(nn.Module):
             Rearrange('b (h w) (c p1 p2) -> b c (h p1) (w p2)', p1 = patch_size, p2 = patch_size, h = patch_height_width)
         )
 
-        self.latents = nn.Parameter(torch.randn(num_latents, dim))
+        self.latents = nn.Parameter(torch.randn(num_latents, dim_latent))
         nn.init.normal_(self.latents, std = 0.02)
 
         self.init_self_cond_latents = nn.Sequential(
-            FeedForward(dim),
-            LayerNorm(dim)
+            FeedForward(dim_latent),
+            LayerNorm(dim_latent)
         )
 
         nn.init.zeros_(self.init_self_cond_latents[-1].gamma)
@@ -382,7 +391,7 @@ class RIN(nn.Module):
 
         attn_kwargs = {**attn_kwargs, 'time_cond_dim': time_dim}
 
-        self.blocks = nn.ModuleList([RINBlock(dim, latent_self_attn_depth = latent_self_attn_depth, **attn_kwargs) for _ in range(depth)])
+        self.blocks = nn.ModuleList([RINBlock(dim, dim_latent = dim_latent, latent_self_attn_depth = latent_self_attn_depth, **attn_kwargs) for _ in range(depth)])
 
     def forward(
         self,
