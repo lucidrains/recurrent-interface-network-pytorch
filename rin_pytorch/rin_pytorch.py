@@ -493,6 +493,7 @@ class GaussianDiffusion(nn.Module):
         timesteps = 1000,
         use_ddim = False,
         noise_schedule = 'sigmoid',
+        objective = 'eps',
         schedule_kwargs: dict = dict(),
         time_difference = 0.,
         train_prob_self_cond = 0.9
@@ -500,6 +501,9 @@ class GaussianDiffusion(nn.Module):
         super().__init__()
         self.model = model
         self.channels = self.model.channels
+
+        assert objective in {'x0', 'eps'}, 'objective must be either predict x0 or noise'
+        self.objective = objective
 
         self.image_size = image_size
 
@@ -560,11 +564,7 @@ class GaussianDiffusion(nn.Module):
 
             # get predicted x0
 
-            x_start, last_latents = self.model(img, noise_cond, x_start, last_latents, return_latents = True)
-
-            # clip x0
-
-            x_start.clamp_(-1., 1.)
+            model_output, last_latents = self.model(img, noise_cond, x_start, last_latents, return_latents = True)
 
             # get log(snr)
 
@@ -576,6 +576,18 @@ class GaussianDiffusion(nn.Module):
 
             alpha, sigma = log_snr_to_alpha_sigma(log_snr)
             alpha_next, sigma_next = log_snr_to_alpha_sigma(log_snr_next)
+
+            # calculate x0 and noise
+
+            if self.objective == 'x0':
+                x_start = model_output
+
+            elif self.objective == 'eps':
+                x_start = (img - sigma * model_output) / alpha
+
+            # clip x0
+
+            x_start.clamp_(-1., 1.)
 
             # derive posterior mean and variance
 
@@ -628,7 +640,15 @@ class GaussianDiffusion(nn.Module):
 
             # predict x0
 
-            x_start, last_latents = self.model(img, log_snr, x_start, last_latents, return_latents = True)
+            model_output, last_latents = self.model(img, log_snr, x_start, last_latents, return_latents = True)
+
+            # calculate x0 and noise
+
+            if self.objective == 'x0':
+                x_start = model_output
+
+            elif self.objective == 'eps':
+                x_start = (img - sigma * model_output) / alpha
 
             # clip x0
 
@@ -636,7 +656,11 @@ class GaussianDiffusion(nn.Module):
 
             # get predicted noise
 
-            pred_noise = (img - alpha * x_start) / sigma.clamp(min = 1e-8)
+            if self.objective == 'x0':
+                pred_noise = (img - alpha * x_start) / sigma.clamp(min = 1e-8)
+
+            elif self.objective == 'eps':
+                pred_noise = model_output
 
             # calculate x next
 
@@ -687,7 +711,13 @@ class GaussianDiffusion(nn.Module):
 
         pred = self.model(noised_img, noise_level, self_cond, self_latents)
 
-        return F.mse_loss(pred, img)
+        if self.objective == 'x0':
+            target = img
+
+        elif self.objective == 'eps':
+            target = noise
+
+        return F.mse_loss(pred, target)
 
 # dataset classes
 
