@@ -285,6 +285,7 @@ class RINBlock(nn.Module):
         dim_latent = default(dim_latent, dim)
 
         self.latents_attend_to_patches = Attention(dim_latent, dim_context = dim, norm = True, norm_context = True, **attn_kwargs)
+        self.latents_cross_attn_ff = FeedForward(dim_latent)
 
         self.latent_self_attns = nn.ModuleList([])
         for _ in range(latent_self_attn_depth):
@@ -308,6 +309,8 @@ class RINBlock(nn.Module):
         # latents extract or cluster information from the patches
 
         latents = self.latents_attend_to_patches(latents, patches, time = t) + latents
+
+        latents = self.latents_cross_attn_ff(latents, time = t) + latents
 
         # latent self attention
 
@@ -583,7 +586,7 @@ class GaussianDiffusion(nn.Module):
                 x_start = model_output
 
             elif self.objective == 'eps':
-                x_start = (img - sigma * model_output) / alpha
+                x_start = (img - sigma * model_output) / alpha.clamp(min = 1e-8)
 
             # clip x0
 
@@ -648,7 +651,7 @@ class GaussianDiffusion(nn.Module):
                 x_start = model_output
 
             elif self.objective == 'eps':
-                x_start = (img - sigma * model_output) / alpha
+                x_start = (img - sigma * model_output) / alpha.clamp(min = 1e-8)
 
             # clip x0
 
