@@ -501,8 +501,8 @@ def sigmoid_schedule(t, start = -3, end = 3, tau = 1, clamp_min = 1e-9):
 def gamma_to_alpha_sigma(gamma, scale = 1):
     return torch.sqrt(gamma) * scale, torch.sqrt(1 - gamma)
 
-def gamma_to_log_snr(gamma, eps = 1e-5):
-    return -log(gamma ** -1. - 1, eps = eps)
+def gamma_to_log_snr(gamma, scale = 1, eps = 1e-5):
+    return log(gamma * (scale ** 2) / (1 - gamma), eps = eps)
 
 # gaussian diffusion
 
