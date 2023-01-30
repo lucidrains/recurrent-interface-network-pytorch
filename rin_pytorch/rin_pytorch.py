@@ -498,8 +498,8 @@ def sigmoid_schedule(t, start = -3, end = 3, tau = 1, clamp_min = 1e-9):
 
 # converting gamma to alpha, sigma or logsnr
 
-def gamma_to_alpha_sigma(gamma):
-    return torch.sqrt(gamma), torch.sqrt(1 - gamma)
+def gamma_to_alpha_sigma(gamma, scale = 1):
+    return torch.sqrt(gamma) * scale, torch.sqrt(1 - gamma)
 
 def gamma_to_log_snr(gamma, eps = 1e-5):
     return -log(gamma ** -1. - 1, eps = eps)
@@ -543,7 +543,7 @@ class GaussianDiffusion(nn.Module):
         # the main finding presented in Ting Chen's paper - that higher resolution images requires more noise for better training
 
         assert scale <= 1, 'scale must be less than or equal to 1'
-        self.scale = scale  #
+        self.scale = scale
         self.normalize_img_variance = normalize_img_variance if scale < 1 else identity
 
         # gamma schedules
@@ -607,8 +607,8 @@ class GaussianDiffusion(nn.Module):
 
             # get alpha sigma of time and next time
 
-            alpha, sigma = gamma_to_alpha_sigma(gamma)
-            alpha_next, sigma_next = gamma_to_alpha_sigma(gamma_next)
+            alpha, sigma = gamma_to_alpha_sigma(gamma, self.scale)
+            alpha_next, sigma_next = gamma_to_alpha_sigma(gamma_next, self.scale)
 
             # calculate x0 and noise
 
@@ -666,8 +666,8 @@ class GaussianDiffusion(nn.Module):
 
             padded_gamma, padded_gamma_next = map(partial(right_pad_dims_to, img), (gamma, gamma_next))
 
-            alpha, sigma = gamma_to_alpha_sigma(padded_gamma)
-            alpha_next, sigma_next = gamma_to_alpha_sigma(padded_gamma_next)
+            alpha, sigma = gamma_to_alpha_sigma(padded_gamma, self.scale)
+            alpha_next, sigma_next = gamma_to_alpha_sigma(padded_gamma_next, self.scale)
 
             # add the time delay
 
@@ -728,9 +728,11 @@ class GaussianDiffusion(nn.Module):
 
         gamma = self.gamma_schedule(times)
         padded_gamma = right_pad_dims_to(img, gamma)
-        alpha, sigma =  gamma_to_alpha_sigma(padded_gamma)
+        alpha, sigma =  gamma_to_alpha_sigma(padded_gamma, self.scale)
 
         noised_img = alpha * img + sigma * noise
+
+        noised_img = self.normalize_img_variance(noised_img)
 
         # in the paper, they had to use a really high probability of latent self conditioning, up to 90% of the time
         # slight drawback
@@ -745,7 +747,6 @@ class GaussianDiffusion(nn.Module):
 
         # predict and take gradient step
 
-        noised_img = self.normalize_img_variance(noised_img)
         pred = self.model(noised_img, times, self_cond, self_latents)
 
         if self.objective == 'x0':
