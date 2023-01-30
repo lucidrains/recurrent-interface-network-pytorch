@@ -732,6 +732,8 @@ class GaussianDiffusion(nn.Module):
 
         noised_img = alpha * img + sigma * noise
 
+        noised_img = self.normalize_img_variance(noised_img)
+
         # in the paper, they had to use a really high probability of latent self conditioning, up to 90% of the time
         # slight drawback
 
@@ -745,7 +747,6 @@ class GaussianDiffusion(nn.Module):
 
         # predict and take gradient step
 
-        noised_img = self.normalize_img_variance(noised_img)
         pred = self.model(noised_img, times, self_cond, self_latents)
 
         if self.objective == 'x0':
