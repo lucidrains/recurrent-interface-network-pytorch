@@ -514,7 +514,7 @@ class GaussianDiffusion(nn.Module):
         *,
         image_size,
         timesteps = 1000,
-        use_ddim = False,
+        use_ddim = True,
         noise_schedule = 'sigmoid',
         objective = 'eps',
         schedule_kwargs: dict = dict(),
