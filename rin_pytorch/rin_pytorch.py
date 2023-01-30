@@ -29,6 +29,9 @@ from accelerate import Accelerator
 def exists(x):
     return x is not None
 
+def identity(x):
+    return x
+
 def default(val, d):
     if exists(val):
         return val
@@ -457,6 +460,12 @@ def normalize_img(x):
 def unnormalize_img(x):
     return (x + 1) * 0.5
 
+# normalize variance of noised image, if scale is not 1
+
+def normalize_img_variance(x, eps = 1e-5):
+    std = reduce(x, 'b c h w -> b 1 1 1', partial(torch.std, unbiased = False))
+    return x / std.clamp(min = eps)
+
 # helper functions
 
 def log(t, eps = 1e-20):
@@ -468,21 +477,32 @@ def right_pad_dims_to(x, t):
         return t
     return t.view(*t.shape, *((1,) * padding_dims))
 
-def beta_linear_log_snr(t):
-    return -log(expm1(1e-4 + 10 * (t ** 2)))
+# noise schedules
 
-def alpha_cosine_log_snr(t, s = 0.008):
-    return -log((torch.cos((t + s) / (1 + s) * math.pi * 0.5) ** -2) - 1, eps = 1e-5)
+def simple_linear_schedule(t, clip_min = 1e-9):
+    return (1 - t).clamp(min = clip_min)
 
-def gamma_sigmoid_log_snr(t, start = -3, end = 3, tau = 1, clamp_min = 1e-5):
+def cosine_schedule(t, start = 0, end = 1, tau = 1, clip_min = 1e-9):
+    power = 2 * tau
+    v_start = math.cos(start * math.pi / 2) ** power
+    v_end = math.cos(end * math.pi / 2) ** power
+    output = math.cos((t * (end - start) + start) * math.pi / 2) ** power
+    output = (v_end - output) / (v_end - v_start)
+    return output.clamp(min = clip_min)
+
+def sigmoid_schedule(t, start = -3, end = 3, tau = 1, clamp_min = 1e-9):
     v_start = torch.tensor(start / tau).sigmoid()
     v_end = torch.tensor(end / tau).sigmoid()
     gamma = (-((t * (end - start) + start) / tau).sigmoid() + v_end) / (v_end - v_start)
-    gamma.clamp_(min = clamp_min, max = 1.)
-    return -log(gamma ** -1. - 1, eps = 1e-5)
+    return gamma.clamp_(min = clamp_min, max = 1.)
 
-def log_snr_to_alpha_sigma(log_snr):
-    return torch.sqrt(torch.sigmoid(log_snr)), torch.sqrt(torch.sigmoid(-log_snr))
+# converting gamma to alpha, sigma or logsnr
+
+def gamma_to_alpha_sigma(gamma):
+    return torch.sqrt(gamma), torch.sqrt(1 - gamma)
+
+def gamma_to_log_snr(gamma, eps = 1e-5):
+    return -log(gamma ** -1. - 1, eps = eps)
 
 # gaussian diffusion
 
@@ -499,7 +519,8 @@ class GaussianDiffusion(nn.Module):
         objective = 'eps',
         schedule_kwargs: dict = dict(),
         time_difference = 0.,
-        train_prob_self_cond = 0.9
+        train_prob_self_cond = 0.9,
+        scale = 1.                      # this will be set to < 1. for better convergence when training on higher resolution images
     ):
         super().__init__()
         self.model = model
@@ -511,15 +532,23 @@ class GaussianDiffusion(nn.Module):
         self.image_size = image_size
 
         if noise_schedule == "linear":
-            self.log_snr = beta_linear_log_snr
+            self.gamma_schedule = simple_linear_schedule
         elif noise_schedule == "cosine":
-            self.log_snr = alpha_cosine_log_snr
+            self.gamma_schedule = cosine_schedule
         elif noise_schedule == "sigmoid":
-            self.log_snr = gamma_sigmoid_log_snr
+            self.gamma_schedule = sigmoid_schedule
         else:
             raise ValueError(f'invalid noise schedule {noise_schedule}')
 
-        self.log_snr = partial(self.log_snr, **schedule_kwargs)
+        # the main finding presented in Ting Chen's paper - that higher resolution images requires more noise for better training
+
+        assert scale <= 1, 'scale must be less than or equal to 1'
+        self.scale = scale  #
+        self.normalize_img_variance = normalize_img_variance if scale < 1 else identity
+
+        # gamma schedules
+
+        self.gamma_schedule = partial(self.gamma_schedule, **schedule_kwargs)
 
         self.timesteps = timesteps
         self.use_ddim = use_ddim
@@ -563,22 +592,23 @@ class GaussianDiffusion(nn.Module):
 
             time_next = (time_next - self.time_difference).clamp(min = 0.)
 
-            noise_cond = self.log_snr(time)
+            noise_cond = time
 
             # get predicted x0
 
+            img = self.normalize_img_variance(img)
             model_output, last_latents = self.model(img, noise_cond, x_start, last_latents, return_latents = True)
 
             # get log(snr)
 
-            log_snr = self.log_snr(time)
-            log_snr_next = self.log_snr(time_next)
-            log_snr, log_snr_next = map(partial(right_pad_dims_to, img), (log_snr, log_snr_next))
+            gamma = self.gamma_schedule(time)
+            gamma_next = self.gamma_schedule(time_next)
+            gamma, gamma_next = map(partial(right_pad_dims_to, img), (gamma, gamma_next))
 
             # get alpha sigma of time and next time
 
-            alpha, sigma = log_snr_to_alpha_sigma(log_snr)
-            alpha_next, sigma_next = log_snr_to_alpha_sigma(log_snr_next)
+            alpha, sigma = gamma_to_alpha_sigma(gamma)
+            alpha_next, sigma_next = gamma_to_alpha_sigma(gamma_next)
 
             # calculate x0 and noise
 
@@ -593,6 +623,8 @@ class GaussianDiffusion(nn.Module):
             x_start.clamp_(-1., 1.)
 
             # derive posterior mean and variance
+
+            log_snr, log_snr_next = map(gamma_to_log_snr, (gamma, gamma_next))
 
             c = -expm1(log_snr - log_snr_next)
 
@@ -629,13 +661,13 @@ class GaussianDiffusion(nn.Module):
 
             # get times and noise levels
 
-            log_snr = self.log_snr(times)
-            log_snr_next = self.log_snr(times_next)
+            gamma = self.gamma_schedule(times)
+            gamma_next = self.gamma_schedule(times_next)
 
-            padded_log_snr, padded_log_snr_next = map(partial(right_pad_dims_to, img), (log_snr, log_snr_next))
+            padded_gamma, padded_gamma_next = map(partial(right_pad_dims_to, img), (gamma, gamma_next))
 
-            alpha, sigma = log_snr_to_alpha_sigma(padded_log_snr)
-            alpha_next, sigma_next = log_snr_to_alpha_sigma(padded_log_snr_next)
+            alpha, sigma = gamma_to_alpha_sigma(padded_gamma)
+            alpha_next, sigma_next = gamma_to_alpha_sigma(padded_gamma_next)
 
             # add the time delay
 
@@ -643,7 +675,8 @@ class GaussianDiffusion(nn.Module):
 
             # predict x0
 
-            model_output, last_latents = self.model(img, log_snr, x_start, last_latents, return_latents = True)
+            img = self.normalize_img_variance(img)
+            model_output, last_latents = self.model(img, times, x_start, last_latents, return_latents = True)
 
             # calculate x0 and noise
 
@@ -693,9 +726,9 @@ class GaussianDiffusion(nn.Module):
 
         noise = torch.randn_like(img)
 
-        noise_level = self.log_snr(times)
-        padded_noise_level = right_pad_dims_to(img, noise_level)
-        alpha, sigma =  log_snr_to_alpha_sigma(padded_noise_level)
+        gamma = self.gamma_schedule(times)
+        padded_gamma = right_pad_dims_to(img, gamma)
+        alpha, sigma =  gamma_to_alpha_sigma(padded_gamma)
 
         noised_img = alpha * img + sigma * noise
 
@@ -706,13 +739,14 @@ class GaussianDiffusion(nn.Module):
 
         if random() < self.train_prob_self_cond:
             with torch.no_grad():
-                self_cond, self_latents = self.model(noised_img, noise_level, return_latents = True)
+                self_cond, self_latents = self.model(noised_img, times, return_latents = True)
                 self_cond = self_cond.detach()
                 self_latents = self_latents.detach()
 
         # predict and take gradient step
 
-        pred = self.model(noised_img, noise_level, self_cond, self_latents)
+        noised_img = self.normalize_img_variance(noised_img)
+        pred = self.model(noised_img, times, self_cond, self_latents)
 
         if self.objective == 'x0':
             target = img

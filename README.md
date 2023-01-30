@@ -12,6 +12,8 @@ Additionally, we will try adding an extra linear attention on the main branch as
 
 The insight of being able to self-condition on any hidden state of the network as well as the newly proposed sigmoid noise schedule are the two main findings.
 
+This repository also contains the ability to <a href="https://arxiv.org/abs/2301.10972">noise higher resolution images more</a>, using the `scale` keyword argument on the `GaussianDiffusion` class. It also contains the simple linear gamma schedule proposed in that paper.
+
 ## Appreciation
 
 - <a href="https://stability.ai/">Stability.ai</a> for the generous sponsorship to work on cutting edge artificial intelligence research
@@ -42,7 +44,8 @@ diffusion = GaussianDiffusion(
     image_size = 128,
     use_ddim = False,
     timesteps = 400,
-    train_prob_self_cond = 0.9  # how often to self condition on latents
+    train_prob_self_cond = 0.9,  # how often to self condition on latents
+    scale = 1.                   # this will be set to < 1. for more noising and leads to better convergence when training on higher resolution images (512, 1024) - input noised images will be auto variance normalized
 ).cuda()
 
 trainer = Trainer(
@@ -81,7 +84,8 @@ diffusion = GaussianDiffusion(
     model,
     image_size = 128,
     timesteps = 1000,
-    train_prob_self_cond = 0.9
+    train_prob_self_cond = 0.9,
+    scale = 1.
 )
 
 training_images = torch.randn(8, 3, 128, 128) # images are normalized from 0 to 1
@@ -108,5 +112,13 @@ sampled_images.shape # (4, 3, 128, 128)
     eprint  = {2212.11972},
     archivePrefix = {arXiv},
     primaryClass = {cs.LG}
+}
+```
+
+```bibtex
+@inproceedings{Chen2023OnTI,
+    title   = {On the Importance of Noise Scheduling for Diffusion Models},
+    author  = {Ting Chen},
+    year    = {2023}
 }
 ```
