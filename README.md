@@ -100,6 +100,7 @@ sampled_images.shape # (4, 3, 128, 128)
 
 - [ ] experiment with <a href="https://github.com/lucidrains/bidirectional-cross-attention/issues">bidirectional cross attention</a>
 - [ ] add ability to use 2d sinusoidal pos emb, from simple vit paper
+- [ ] `gamma_to_log_snr` should account for scale < 1
 
 ## Citations
 
