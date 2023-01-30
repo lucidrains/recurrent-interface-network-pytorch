@@ -544,7 +544,7 @@ class GaussianDiffusion(nn.Module):
 
         assert scale <= 1, 'scale must be less than or equal to 1'
         self.scale = scale
-        self.normalize_img_variance = normalize_img_variance if scale < 1 else identity
+        self.maybe_normalize_img_variance = normalize_img_variance if scale < 1 else identity
 
         # gamma schedules
 
@@ -596,8 +596,8 @@ class GaussianDiffusion(nn.Module):
 
             # get predicted x0
 
-            img = self.normalize_img_variance(img)
-            model_output, last_latents = self.model(img, noise_cond, x_start, last_latents, return_latents = True)
+            maybe_normalized_img = self.maybe_normalize_img_variance(img)
+            model_output, last_latents = self.model(maybe_normalized_img, noise_cond, x_start, last_latents, return_latents = True)
 
             # get log(snr)
 
@@ -675,8 +675,8 @@ class GaussianDiffusion(nn.Module):
 
             # predict x0
 
-            img = self.normalize_img_variance(img)
-            model_output, last_latents = self.model(img, times, x_start, last_latents, return_latents = True)
+            maybe_normalized_img = self.maybe_normalize_img_variance(img)
+            model_output, last_latents = self.model(maybe_normalized_img, times, x_start, last_latents, return_latents = True)
 
             # calculate x0 and noise
 
@@ -732,7 +732,7 @@ class GaussianDiffusion(nn.Module):
 
         noised_img = alpha * img + sigma * noise
 
-        noised_img = self.normalize_img_variance(noised_img)
+        noised_img = self.maybe_normalize_img_variance(noised_img)
 
         # in the paper, they had to use a really high probability of latent self conditioning, up to 90% of the time
         # slight drawback
