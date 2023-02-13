@@ -870,7 +870,7 @@ class Trainer(object):
             return
 
         data = {
-            'step': self.step,
+            'step': self.step + 1,
             'model': self.accelerator.get_state_dict(self.model),
             'opt': self.opt.state_dict(),
             'ema': self.ema.state_dict(),
