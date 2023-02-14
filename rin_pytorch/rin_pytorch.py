@@ -616,7 +616,7 @@ class GaussianDiffusion(nn.Module):
                 x_start = model_output
 
             elif self.objective == 'eps':
-                x_start = (img - sigma * model_output) / alpha.clamp(min = 1e-8)
+                x_start = (maybe_normalized_img - sigma * model_output) / alpha.clamp(min = 1e-8)
 
             # clip x0
 
@@ -628,7 +628,7 @@ class GaussianDiffusion(nn.Module):
 
             c = -expm1(log_snr - log_snr_next)
 
-            mean = alpha_next * (img * (1 - c) / alpha + c * x_start)
+            mean = alpha_next * (maybe_normalized_img * (1 - c) / alpha + c * x_start)
             variance = (sigma_next ** 2) * c
             log_variance = log(variance)
 
@@ -684,7 +684,7 @@ class GaussianDiffusion(nn.Module):
                 x_start = model_output
 
             elif self.objective == 'eps':
-                x_start = (img - sigma * model_output) / alpha.clamp(min = 1e-8)
+                x_start = (maybe_normalized_img - sigma * model_output) / alpha.clamp(min = 1e-8)
 
             # clip x0
 
@@ -693,7 +693,7 @@ class GaussianDiffusion(nn.Module):
             # get predicted noise
 
             if self.objective == 'x0':
-                pred_noise = (img - alpha * x_start) / sigma.clamp(min = 1e-8)
+                pred_noise = (maybe_normalized_img - alpha * x_start) / sigma.clamp(min = 1e-8)
 
             elif self.objective == 'eps':
                 pred_noise = model_output
