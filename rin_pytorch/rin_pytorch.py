@@ -194,22 +194,18 @@ class Attention(nn.Module):
         time = None
     ):
         h = self.heads
-        has_context = exists(context)
 
-        context = default(context, x)
-
-        if x.shape[-1] != self.norm.gamma.shape[-1]:
-            print(context.shape, x.shape, self.norm.gamma.shape)
+        if exists(context):
+            context = self.norm_context(context)
 
         x = self.norm(x)
+
+        context = default(context, x)
 
         if exists(self.time_cond):
             assert exists(time)
             scale, shift = self.time_cond(time).chunk(2, dim = -1)
             x = (x * (scale + 1)) + shift
-
-        if has_context:
-            context = self.norm_context(context)
 
         qkv = (self.to_q(x), *self.to_kv(context).chunk(2, dim = -1))
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
