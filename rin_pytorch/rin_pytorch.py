@@ -349,6 +349,7 @@ class RIN(nn.Module):
         assert divisible_by(image_size, patch_size)
         dim_latent = default(dim_latent, dim)
 
+        self.image_size = image_size
         self.channels = channels # times 2 due to self-conditioning
 
         patch_height_width = image_size // patch_size
@@ -508,7 +509,6 @@ class GaussianDiffusion(nn.Module):
         self,
         model: RIN,
         *,
-        image_size,
         timesteps = 1000,
         use_ddim = True,
         noise_schedule = 'sigmoid',
@@ -525,7 +525,7 @@ class GaussianDiffusion(nn.Module):
         assert objective in {'x0', 'eps'}, 'objective must be either predict x0 or noise'
         self.objective = objective
 
-        self.image_size = image_size
+        self.image_size = model.image_size
 
         if noise_schedule == "linear":
             self.gamma_schedule = simple_linear_schedule
