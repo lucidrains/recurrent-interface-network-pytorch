@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'RIN-pytorch',
   packages = find_packages(exclude=[]),
-  version = '0.4.8',
+  version = '0.4.9',
   license='MIT',
   description = 'RIN - Recurrent Interface Network - Pytorch',
   author = 'Phil Wang',

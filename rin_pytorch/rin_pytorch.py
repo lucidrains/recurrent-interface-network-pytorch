@@ -40,6 +40,9 @@ def default(val, d):
 def divisible_by(numer, denom):
     return (numer % denom) == 0
 
+def safe_div(numer, denom, eps = 1e-8):
+    return numer / denom.clamp(min = eps)
+
 def cycle(dl):
     while True:
         for data in dl:
@@ -612,7 +615,7 @@ class GaussianDiffusion(nn.Module):
                 x_start = model_output
 
             elif self.objective == 'eps':
-                x_start = (img - sigma * model_output) / alpha.clamp(min = 1e-8)
+                x_start = safe_div(img - sigma * model_output, alpha)
 
             # clip x0
 
@@ -680,7 +683,7 @@ class GaussianDiffusion(nn.Module):
                 x_start = model_output
 
             elif self.objective == 'eps':
-                x_start = (img - sigma * model_output) / alpha.clamp(min = 1e-8)
+                x_start = safe_div(img - sigma * model_output, alpha)
 
             # clip x0
 
@@ -689,7 +692,7 @@ class GaussianDiffusion(nn.Module):
             # get predicted noise
 
             if self.objective == 'x0':
-                pred_noise = (img - alpha * x_start) / sigma.clamp(min = 1e-8)
+                pred_noise = safe_div(img - alpha * x_start, sigma)
 
             elif self.objective == 'eps':
                 pred_noise = model_output
@@ -737,9 +740,16 @@ class GaussianDiffusion(nn.Module):
 
         if random() < self.train_prob_self_cond:
             with torch.no_grad():
-                self_cond, self_latents = self.model(noised_img, times, return_latents = True)
-                self_cond = self_cond.detach()
+                model_output, self_latents = self.model(noised_img, times, return_latents = True)
                 self_latents = self_latents.detach()
+
+                if self.objective == 'x0':
+                    self_cond = model_output
+
+                elif self.objective == 'eps':
+                    self_cond = safe_div(noised_img - sigma * model_output, alpha)
+
+                self_cond = self_cond.detach()
 
         # predict and take gradient step
 
