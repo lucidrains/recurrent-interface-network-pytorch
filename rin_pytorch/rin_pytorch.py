@@ -346,6 +346,7 @@ class RIN(nn.Module):
         dim_latent = None,              # will default to image dim (dim)
         num_latents = 256,              # they still had to use a fair amount of latents for good results (256), in line with the Perceiver line of papers from Deepmind
         learned_sinusoidal_dim = 16,
+        latent_token_time_cond = True,  # whether to use 1 latent token as time conditioning, or do it the adaptive layernorm way (which is highly effective as shown by some other papers "Paella" - Dominic Rampas et al.)
         **attn_kwargs
     ):
         super().__init__()
@@ -365,11 +366,14 @@ class RIN(nn.Module):
         time_dim = dim * 4
         fourier_dim = learned_sinusoidal_dim + 1
 
+        self.latent_token_time_cond = latent_token_time_cond
+        time_output_dim = dim_latent if latent_token_time_cond else time_dim
+
         self.time_mlp = nn.Sequential(
             sinu_pos_emb,
             nn.Linear(fourier_dim, time_dim),
             nn.GELU(),
-            nn.Linear(time_dim, time_dim)
+            nn.Linear(time_dim, time_output_dim)
         )
 
         # pixels to patch and back
@@ -399,7 +403,8 @@ class RIN(nn.Module):
 
         # the main RIN body parameters  - another attention is all you need moment
 
-        attn_kwargs = {**attn_kwargs, 'time_cond_dim': time_dim}
+        if not latent_token_time_cond:
+            attn_kwargs = {**attn_kwargs, 'time_cond_dim': time_dim}
 
         self.blocks = nn.ModuleList([RINBlock(dim, dim_latent = dim_latent, latent_self_attn_depth = latent_self_attn_depth, **attn_kwargs) for _ in range(depth)])
 
@@ -430,6 +435,12 @@ class RIN(nn.Module):
         if exists(latent_self_cond):
             latents = latents + self.init_self_cond_latents(latent_self_cond)
 
+        # whether the time conditioning is to be treated as one latent token or for projecting into scale and shift for adaptive layernorm
+
+        if self.latent_token_time_cond:
+            t = rearrange(t, 'b d -> b 1 d')
+            latents = torch.cat((latents, t), dim = -2)
+
         # to patches
 
         patches = self.to_patches(x)
@@ -449,6 +460,11 @@ class RIN(nn.Module):
 
         if not return_latents:
             return pixels
+
+        # remove time conditioning token, if that is the settings
+
+        if self.latent_token_time_cond:
+            latents = latents[:, 1:]
 
         return pixels, latents
 

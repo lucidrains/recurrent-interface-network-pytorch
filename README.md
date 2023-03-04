@@ -41,7 +41,6 @@ model = RIN(
 
 diffusion = GaussianDiffusion(
     model,
-    image_size = 128,
     timesteps = 400,
     train_prob_self_cond = 0.9,  # how often to self condition on latents
     scale = 1.                   # this will be set to < 1. for more noising and leads to better convergence when training on higher resolution images (512, 1024) - input noised images will be auto variance normalized
@@ -81,7 +80,6 @@ model = RIN(
 
 diffusion = GaussianDiffusion(
     model,
-    image_size = 128,
     timesteps = 1000,
     train_prob_self_cond = 0.9,
     scale = 1.
