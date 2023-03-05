@@ -64,6 +64,9 @@ def convert_image_to(img_type, image):
         return image.convert(img_type)
     return image
 
+def Sequential(*mods):
+    return nn.Sequential(*filter(exists, mods))
+
 # use layernorm without bias, more stable
 
 class LayerNorm(nn.Module):
@@ -347,6 +350,7 @@ class RIN(nn.Module):
         num_latents = 256,              # they still had to use a fair amount of latents for good results (256), in line with the Perceiver line of papers from Deepmind
         learned_sinusoidal_dim = 16,
         latent_token_time_cond = False, # whether to use 1 latent token as time conditioning, or do it the adaptive layernorm way (which is highly effective as shown by some other papers "Paella" - Dominic Rampas et al.)
+        dual_patchnorm = True,
         **attn_kwargs
     ):
         super().__init__()
@@ -378,9 +382,11 @@ class RIN(nn.Module):
 
         # pixels to patch and back
 
-        self.to_patches = nn.Sequential(
+        self.to_patches = Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (c p1 p2)', p1 = patch_size, p2 = patch_size),
-            nn.Linear(pixel_patch_dim * 2, dim)
+            nn.LayerNorm(pixel_patch_dim * 2) if dual_patchnorm else None,
+            nn.Linear(pixel_patch_dim * 2, dim),
+            nn.LayerNorm(dim) if dual_patchnorm else None,
         )
 
         self.axial_pos_emb = nn.Parameter(torch.randn(2, patch_height_width, dim) * 0.02)
