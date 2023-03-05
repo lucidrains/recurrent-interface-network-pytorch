@@ -40,7 +40,7 @@ def default(val, d):
 def divisible_by(numer, denom):
     return (numer % denom) == 0
 
-def safe_div(numer, denom, eps = 1e-8):
+def safe_div(numer, denom, eps = 1e-10):
     return numer / denom.clamp(min = eps)
 
 def cycle(dl):
@@ -719,11 +719,7 @@ class GaussianDiffusion(nn.Module):
 
             # get predicted noise
 
-            if self.objective in {'x0', 'v'}:
-                pred_noise = safe_div(img - alpha * x_start, sigma)
-
-            elif self.objective == 'eps':
-                pred_noise = model_output
+            pred_noise = safe_div(img - alpha * x_start, sigma)
 
             # calculate x next
 
