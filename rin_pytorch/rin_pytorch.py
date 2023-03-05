@@ -498,7 +498,7 @@ class RIN(nn.Module):
         # remove time conditioning token, if that is the settings
 
         if self.latent_token_time_cond:
-            latents = latents[:, 1:]
+            latents = latents[:, :-1]
 
         return pixels, latents
 
