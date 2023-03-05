@@ -119,3 +119,13 @@ sampled_images.shape # (4, 3, 128, 128)
     year    = {2023}
 }
 ```
+
+```bibtex
+@article{Salimans2022ProgressiveDF,
+    title   = {Progressive Distillation for Fast Sampling of Diffusion Models},
+    author  = {Tim Salimans and Jonathan Ho},
+    journal = {ArXiv},
+    year    = {2022},
+    volume  = {abs/2202.00512}
+}
+```

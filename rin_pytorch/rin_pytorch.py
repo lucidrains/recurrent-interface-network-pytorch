@@ -346,7 +346,7 @@ class RIN(nn.Module):
         dim_latent = None,              # will default to image dim (dim)
         num_latents = 256,              # they still had to use a fair amount of latents for good results (256), in line with the Perceiver line of papers from Deepmind
         learned_sinusoidal_dim = 16,
-        latent_token_time_cond = True,  # whether to use 1 latent token as time conditioning, or do it the adaptive layernorm way (which is highly effective as shown by some other papers "Paella" - Dominic Rampas et al.)
+        latent_token_time_cond = False, # whether to use 1 latent token as time conditioning, or do it the adaptive layernorm way (which is highly effective as shown by some other papers "Paella" - Dominic Rampas et al.)
         **attn_kwargs
     ):
         super().__init__()
@@ -531,7 +531,7 @@ class GaussianDiffusion(nn.Module):
         timesteps = 1000,
         use_ddim = True,
         noise_schedule = 'sigmoid',
-        objective = 'eps',
+        objective = 'v',
         schedule_kwargs: dict = dict(),
         time_difference = 0.,
         train_prob_self_cond = 0.9,
@@ -541,7 +541,7 @@ class GaussianDiffusion(nn.Module):
         self.model = model
         self.channels = self.model.channels
 
-        assert objective in {'x0', 'eps'}, 'objective must be either predict x0 or noise'
+        assert objective in {'x0', 'eps', 'v'}, 'objective must be either predict x0 or noise'
         self.objective = objective
 
         self.image_size = model.image_size
@@ -633,6 +633,9 @@ class GaussianDiffusion(nn.Module):
             elif self.objective == 'eps':
                 x_start = safe_div(img - sigma * model_output, alpha)
 
+            elif self.objective == 'v':
+                x_start = alpha * img - sigma * model_output
+
             # clip x0
 
             x_start.clamp_(-1., 1.)
@@ -701,13 +704,16 @@ class GaussianDiffusion(nn.Module):
             elif self.objective == 'eps':
                 x_start = safe_div(img - sigma * model_output, alpha)
 
+            elif self.objective == 'v':
+                x_start = alpha * img - sigma * model_output
+
             # clip x0
 
             x_start.clamp_(-1., 1.)
 
             # get predicted noise
 
-            if self.objective == 'x0':
+            if self.objective in {'x0', 'v'}:
                 pred_noise = safe_div(img - alpha * x_start, sigma)
 
             elif self.objective == 'eps':
@@ -765,6 +771,9 @@ class GaussianDiffusion(nn.Module):
                 elif self.objective == 'eps':
                     self_cond = safe_div(noised_img - sigma * model_output, alpha)
 
+                elif self.objective == 'v':
+                    self_cond = alpha * noised_img - sigma * model_output
+
                 self_cond = self_cond.detach()
 
         # predict and take gradient step
@@ -776,6 +785,9 @@ class GaussianDiffusion(nn.Module):
 
         elif self.objective == 'eps':
             target = noise
+
+        elif self.objective == 'v':
+            target = alpha * noise - sigma * img
 
         return F.mse_loss(pred, target)
 
