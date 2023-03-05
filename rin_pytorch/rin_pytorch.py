@@ -774,6 +774,7 @@ class GaussianDiffusion(nn.Module):
                 elif self.objective == 'v':
                     self_cond = alpha * noised_img - sigma * model_output
 
+                self_cond.clamp_(-1., 1.)
                 self_cond = self_cond.detach()
 
         # predict and take gradient step
