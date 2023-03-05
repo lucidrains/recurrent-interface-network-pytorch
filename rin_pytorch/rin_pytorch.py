@@ -389,7 +389,29 @@ class RIN(nn.Module):
             nn.LayerNorm(dim) if dual_patchnorm else None,
         )
 
-        self.axial_pos_emb = nn.Parameter(torch.randn(2, patch_height_width, dim) * 0.02)
+        # axial positional embeddings, parameterized by an MLP
+
+        pos_emb_dim = dim // 2
+
+        self.axial_pos_emb_height_mlp = nn.Sequential(
+            Rearrange('... -> ... 1'),
+            nn.Linear(1, pos_emb_dim),
+            nn.SiLU(),
+            nn.Linear(pos_emb_dim, pos_emb_dim),
+            nn.SiLU(),
+            nn.Linear(pos_emb_dim, dim)
+        )
+
+        self.axial_pos_emb_width_mlp = nn.Sequential(
+            Rearrange('... -> ... 1'),
+            nn.Linear(1, pos_emb_dim),
+            nn.SiLU(),
+            nn.Linear(pos_emb_dim, pos_emb_dim),
+            nn.SiLU(),
+            nn.Linear(pos_emb_dim, dim)
+        )
+
+        # nn.Parameter(torch.randn(2, patch_height_width, dim) * 0.02)
 
         self.to_pixels = nn.Sequential(
             LayerNorm(dim),
@@ -413,6 +435,10 @@ class RIN(nn.Module):
             attn_kwargs = {**attn_kwargs, 'time_cond_dim': time_dim}
 
         self.blocks = nn.ModuleList([RINBlock(dim, dim_latent = dim_latent, latent_self_attn_depth = latent_self_attn_depth, **attn_kwargs) for _ in range(depth)])
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
 
     def forward(
         self,
@@ -451,7 +477,9 @@ class RIN(nn.Module):
 
         patches = self.to_patches(x)
 
-        pos_emb_h, pos_emb_w = self.axial_pos_emb
+        height_range = width_range = torch.linspace(0., 1., steps = int(math.sqrt(patches.shape[-2])), device = self.device)
+        pos_emb_h, pos_emb_w = self.axial_pos_emb_height_mlp(height_range), self.axial_pos_emb_width_mlp(width_range)
+
         pos_emb = rearrange(pos_emb_h, 'i d -> i 1 d') + rearrange(pos_emb_w, 'j d -> 1 j d')
         patches = patches + rearrange(pos_emb, 'i j d -> (i j) d')
 

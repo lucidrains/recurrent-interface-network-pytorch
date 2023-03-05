@@ -85,7 +85,7 @@ diffusion = GaussianDiffusion(
     scale = 1.
 )
 
-training_images = torch.randn(8, 3, 128, 128) # images are normalized from 0 to 1
+training_images = torch.randn(8, 3, 128, 128).cuda() # images are normalized from 0 to 1
 loss = diffusion(training_images)
 loss.backward()
 # after a lot of training
