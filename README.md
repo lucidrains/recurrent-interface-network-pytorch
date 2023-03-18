@@ -141,3 +141,11 @@ sampled_images.shape # (4, 3, 128, 128)
     copyright = {Creative Commons Attribution 4.0 International}
 }
 ```
+
+```bibtex
+@inproceedings{Hang2023EfficientDT,
+    title   = {Efficient Diffusion Training via Min-SNR Weighting Strategy},
+    author  = {Tiankai Hang and Shuyang Gu and Chen Li and Jianmin Bao and Dong Chen and Han Hu and Xin Geng and Baining Guo},
+    year    = {2023}
+}
+```
