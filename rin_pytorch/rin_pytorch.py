@@ -568,6 +568,8 @@ class GaussianDiffusion(nn.Module):
         objective = 'v',
         schedule_kwargs: dict = dict(),
         time_difference = 0.,
+        min_snr_loss_weight = True,
+        min_snr_gamma = 5,
         train_prob_self_cond = 0.9,
         scale = 1.                      # this will be set to < 1. for better convergence when training on higher resolution images
     ):
@@ -610,6 +612,11 @@ class GaussianDiffusion(nn.Module):
         # probability for self conditioning during training
 
         self.train_prob_self_cond = train_prob_self_cond
+
+        # min snr loss weight
+
+        self.min_snr_loss_weight = min_snr_loss_weight
+        self.min_snr_gamma = min_snr_gamma
 
     @property
     def device(self):
@@ -820,7 +827,27 @@ class GaussianDiffusion(nn.Module):
         elif self.objective == 'v':
             target = alpha * noise - sigma * img
 
-        return F.mse_loss(pred, target)
+        loss = F.mse_loss(pred, target, reduction = 'none')
+        loss = reduce(loss, 'b ... -> b', 'mean')
+
+        # min snr loss weight
+
+        snr = (alpha * alpha) / (sigma * sigma)
+        maybe_clipped_snr = snr.clone()
+
+        if self.min_snr_loss_weight:
+            maybe_clipped_snr.clamp_(min = self.min_snr_gamma)
+
+        if self.objective == 'x0':
+            loss_weight = maybe_clipped_snr / snr
+
+        elif self.objective == 'eps':
+            loss_weight = maybe_clipped_snr
+
+        elif self.objective == 'v':
+            loss_weight = maybe_clipped_snr / (snr + 1)
+
+        return (loss * loss_weight).mean()
 
 # dataset classes
 
@@ -872,7 +899,7 @@ class Trainer(object):
         train_num_steps = 100000,
         ema_update_every = 10,
         ema_decay = 0.995,
-        adam_betas = (0.9, 0.99),
+        betas = (0.9, 0.99),
         save_and_sample_every = 1000,
         num_samples = 25,
         results_folder = './results',
@@ -912,7 +939,7 @@ class Trainer(object):
 
         # optimizer
 
-        self.opt = Adam(diffusion_model.parameters(), lr = train_lr, betas = adam_betas)
+        self.opt = Adam(diffusion_model.parameters(), lr = train_lr, betas = betas)
 
         # for logging results in a folder periodically
 
