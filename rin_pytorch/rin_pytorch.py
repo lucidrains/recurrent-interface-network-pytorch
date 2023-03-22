@@ -836,7 +836,7 @@ class GaussianDiffusion(nn.Module):
         maybe_clipped_snr = snr.clone()
 
         if self.min_snr_loss_weight:
-            maybe_clipped_snr.clamp_(min = self.min_snr_gamma)
+            maybe_clipped_snr.clamp_(max = self.min_snr_gamma)
 
         if self.objective == 'eps':
             loss_weight = maybe_clipped_snr / snr
