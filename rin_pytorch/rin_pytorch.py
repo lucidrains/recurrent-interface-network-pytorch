@@ -49,7 +49,8 @@ def cycle(dl):
             yield data
 
 def has_int_squareroot(num):
-    return (math.sqrt(num) ** 2) == num
+    num_sqrt = math.sqrt(num)
+    return int(num_sqrt) == num_sqrt
 
 def num_to_groups(num, divisor):
     groups = num // divisor
