@@ -1004,12 +1004,12 @@ class Trainer(object):
                 for _ in range(self.gradient_accumulate_every):
                     data = next(self.dl).to(device)
 
-                    with self.accelerator.autocast():
+                    with accelerator.autocast():
                         loss = self.model(data)
                         loss = loss / self.gradient_accumulate_every
                         total_loss += loss.item()
 
-                    self.accelerator.backward(loss)
+                    accelerator.backward(loss)
 
                 pbar.set_description(f'loss: {total_loss:.4f}')
 
