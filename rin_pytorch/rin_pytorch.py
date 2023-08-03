@@ -944,11 +944,14 @@ class Trainer(object):
 
         # for logging results in a folder periodically
 
+        self.results_folder = Path(results_folder)
+
+        if self.accelerator.is_local_main_process:
+            self.results_folder.mkdir(exist_ok = True)
+
         if self.accelerator.is_main_process:
             self.ema = EMA(diffusion_model, beta = ema_decay, update_every = ema_update_every)
 
-            self.results_folder = Path(results_folder)
-            self.results_folder.mkdir(exist_ok = True)
 
         # step counter state
 
@@ -980,7 +983,9 @@ class Trainer(object):
 
         self.step = data['step']
         self.opt.load_state_dict(data['opt'])
-        self.ema.load_state_dict(data['ema'])
+
+        if self.accelerator.is_main_process:
+            self.ema.load_state_dict(data['ema'])
 
         if exists(self.accelerator.scaler) and exists(data['scaler']):
             self.accelerator.scaler.load_state_dict(data['scaler'])
@@ -1014,20 +1019,27 @@ class Trainer(object):
 
                 accelerator.wait_for_everyone()
 
-                if accelerator.is_main_process:
-                    self.ema.to(device)
-                    self.ema.update()
+                # save milestone on every local main process, sample only on global main process
 
-                    if self.step != 0 and self.step % self.save_and_sample_every == 0:
-                        self.ema.ema_model.eval()
+                if accelerator.is_local_main_process:
+                    milestone = self.step // self.save_and_sample_every
+                    save_and_sample = self.step != 0 and self.step % self.save_and_sample_every == 0
+                    
+                    if accelerator.is_main_process:
+                        self.ema.to(device)
+                        self.ema.update()
 
-                        with torch.no_grad():
-                            milestone = self.step // self.save_and_sample_every
-                            batches = num_to_groups(self.num_samples, self.batch_size)
-                            all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n), batches))
+                        if save_and_sample:
+                            self.ema.ema_model.eval()
 
-                        all_images = torch.cat(all_images_list, dim = 0)
-                        utils.save_image(all_images, str(self.results_folder / f'sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
+                            with torch.no_grad():
+                                batches = num_to_groups(self.num_samples, self.batch_size)
+                                all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n), batches))
+
+                            all_images = torch.cat(all_images_list, dim = 0)
+                            utils.save_image(all_images, str(self.results_folder / f'sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
+
+                    if save_and_sample:
                         self.save(milestone)
 
                 self.step += 1
