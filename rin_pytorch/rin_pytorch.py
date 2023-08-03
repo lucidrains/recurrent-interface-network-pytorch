@@ -22,7 +22,7 @@ from PIL import Image
 from tqdm.auto import tqdm
 from ema_pytorch import EMA
 
-from accelerate import Accelerator
+from accelerate import Accelerator, DistributedDataParallelKwargs
 
 # helpers functions
 
@@ -913,7 +913,8 @@ class Trainer(object):
 
         self.accelerator = Accelerator(
             split_batches = split_batches,
-            mixed_precision = 'fp16' if fp16 else 'no'
+            mixed_precision = 'fp16' if fp16 else 'no',
+            kwargs_handlers = [DistributedDataParallelKwargs(find_unused_parameters=True)]
         )
 
         self.accelerator.native_amp = amp
