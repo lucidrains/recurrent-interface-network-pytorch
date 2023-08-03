@@ -18,6 +18,8 @@ from beartype import beartype
 from einops import rearrange, reduce, repeat
 from einops.layers.torch import Rearrange
 
+from rin_pytorch.attend import Attend
+
 from PIL import Image
 from tqdm.auto import tqdm
 from ema_pytorch import EMA
@@ -166,7 +168,8 @@ class Attention(nn.Module):
         dim_head = 32,
         norm = False,
         norm_context = False,
-        time_cond_dim = None
+        time_cond_dim = None,
+        flash = False
     ):
         super().__init__()
         hidden_dim = dim_head * heads
@@ -194,6 +197,8 @@ class Attention(nn.Module):
         self.to_kv = nn.Linear(dim_context, hidden_dim * 2, bias = False)
         self.to_out = nn.Linear(hidden_dim, dim, bias = False)
 
+        self.attend = Attend(flash = flash)
+
     def forward(
         self,
         x,
@@ -217,12 +222,8 @@ class Attention(nn.Module):
         qkv = (self.to_q(x), *self.to_kv(context).chunk(2, dim = -1))
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
 
-        q = q * self.scale
+        out = self.attend(q, k, v)
 
-        sim = einsum('b h i d, b h j d -> b h i j', q, k)
-        attn = sim.softmax(dim = -1)
-
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
