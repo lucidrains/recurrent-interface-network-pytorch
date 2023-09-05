@@ -899,6 +899,7 @@ class Trainer(object):
         augment_horizontal_flip = True,
         train_lr = 1e-4,
         train_num_steps = 100000,
+        max_grad_norm = 1.,
         ema_update_every = 10,
         ema_decay = 0.995,
         betas = (0.9, 0.99),
@@ -926,6 +927,7 @@ class Trainer(object):
 
         self.batch_size = train_batch_size
         self.gradient_accumulate_every = gradient_accumulate_every
+        self.max_grad_norm = max_grad_norm
 
         self.train_num_steps = train_num_steps
         self.image_size = diffusion_model.image_size
@@ -1013,6 +1015,7 @@ class Trainer(object):
                 pbar.set_description(f'loss: {total_loss:.4f}')
 
                 accelerator.wait_for_everyone()
+                accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 
                 self.opt.step()
                 self.opt.zero_grad()
