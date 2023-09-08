@@ -81,6 +81,15 @@ class LayerNorm(nn.Module):
     def forward(self, x):
         return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)
 
+class MultiHeadedRMSNorm(nn.Module):
+    def __init__(self, dim, heads = 1):
+        super().__init__()
+        self.scale = dim ** 0.5
+        self.gamma = nn.Parameter(torch.ones(heads, 1, dim))
+
+    def forward(self, x):
+        return F.normalize(x, dim = -1) * self.scale * self.gamma
+
 # positional embeds
 
 class LearnedSinusoidalPosEmb(nn.Module):
@@ -104,6 +113,7 @@ class LinearAttention(nn.Module):
         heads = 4,
         dim_head = 32,
         norm = False,
+        qk_norm = False,
         time_cond_dim = None
     ):
         super().__init__()
@@ -127,6 +137,11 @@ class LinearAttention(nn.Module):
 
         self.to_qkv = nn.Linear(dim, hidden_dim * 3, bias = False)
 
+        self.qk_norm = qk_norm
+        if qk_norm:
+            self.q_norm = MultiHeadedRMSNorm(dim_head, heads)
+            self.k_norm = MultiHeadedRMSNorm(dim_head, heads)
+
         self.to_out = nn.Sequential(
             nn.Linear(hidden_dim, dim, bias = False),
             LayerNorm(dim)
@@ -147,6 +162,10 @@ class LinearAttention(nn.Module):
 
         qkv = self.to_qkv(x).chunk(3, dim = -1)
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
+
+        if self.qk_norm:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
 
         q = q.softmax(dim = -1)
         k = k.softmax(dim = -2)
@@ -169,7 +188,8 @@ class Attention(nn.Module):
         norm = False,
         norm_context = False,
         time_cond_dim = None,
-        flash = False
+        flash = False,
+        qk_norm = False
     ):
         super().__init__()
         hidden_dim = dim_head * heads
@@ -197,6 +217,11 @@ class Attention(nn.Module):
         self.to_kv = nn.Linear(dim_context, hidden_dim * 2, bias = False)
         self.to_out = nn.Linear(hidden_dim, dim, bias = False)
 
+        self.qk_norm = qk_norm
+        if qk_norm:
+            self.q_norm = MultiHeadedRMSNorm(dim_head, heads)
+            self.k_norm = MultiHeadedRMSNorm(dim_head, heads)
+
         self.attend = Attend(flash = flash)
 
     def forward(
@@ -221,6 +246,10 @@ class Attention(nn.Module):
 
         qkv = (self.to_q(x), *self.to_kv(context).chunk(2, dim = -1))
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
+
+        if self.qk_norm:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
 
         out = self.attend(q, k, v)
 

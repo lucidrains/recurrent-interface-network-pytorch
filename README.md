@@ -158,3 +158,11 @@ sampled_images.shape # (4, 3, 128, 128)
     year    = {2022}
 }
 ```
+
+```bibtex
+@inproceedings{Hoogeboom2023simpleDE,
+    title   = {simple diffusion: End-to-end diffusion for high resolution images},
+    author  = {Emiel Hoogeboom and Jonathan Heek and Tim Salimans},
+    year    = {2023}
+}
+```
