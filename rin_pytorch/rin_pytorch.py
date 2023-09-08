@@ -286,6 +286,7 @@ class RINBlock(nn.Module):
         latent_self_attn_depth,
         dim_latent = None,
         final_norm = True,
+        patches_self_attn = True,
         **attn_kwargs
     ):
         super().__init__()
@@ -304,8 +305,11 @@ class RINBlock(nn.Module):
         self.latent_final_norm = LayerNorm(dim_latent) if final_norm else nn.Identity()
 
         self.patches_peg = PEG(dim)
-        self.patches_self_attn = LinearAttention(dim, norm = True, **attn_kwargs)
-        self.patches_self_attn_ff = FeedForward(dim)
+        self.patches_self_attn = patches_self_attn
+
+        if patches_self_attn:
+            self.patches_self_attn = LinearAttention(dim, norm = True, **attn_kwargs)
+            self.patches_self_attn_ff = FeedForward(dim)
 
         self.patches_attend_to_latents = Attention(dim, dim_context = dim_latent, norm = True, norm_context = True, **attn_kwargs)
         self.patches_cross_attn_ff = FeedForward(dim)
@@ -325,10 +329,11 @@ class RINBlock(nn.Module):
             latents = attn(latents, time = t) + latents
             latents = ff(latents, time = t) + latents
 
-        # additional patches self attention with linear attention
+        if self.patches_self_attn:
+            # additional patches self attention with linear attention
 
-        patches = self.patches_self_attn(patches, time = t) + patches
-        patches = self.patches_self_attn_ff(patches) + patches
+            patches = self.patches_self_attn(patches, time = t) + patches
+            patches = self.patches_self_attn_ff(patches) + patches
 
         # patches attend to the latents
 
@@ -353,6 +358,7 @@ class RIN(nn.Module):
         learned_sinusoidal_dim = 16,
         latent_token_time_cond = False, # whether to use 1 latent token as time conditioning, or do it the adaptive layernorm way (which is highly effective as shown by some other papers "Paella" - Dominic Rampas et al.)
         dual_patchnorm = True,
+        patches_self_attn = True,       # the self attention in this repository is not strictly with the design proposed in the paper. offer way to remove it, in case it is the source of instability
         **attn_kwargs
     ):
         super().__init__()
@@ -436,7 +442,7 @@ class RIN(nn.Module):
         if not latent_token_time_cond:
             attn_kwargs = {**attn_kwargs, 'time_cond_dim': time_dim}
 
-        self.blocks = nn.ModuleList([RINBlock(dim, dim_latent = dim_latent, latent_self_attn_depth = latent_self_attn_depth, **attn_kwargs) for _ in range(depth)])
+        self.blocks = nn.ModuleList([RINBlock(dim, dim_latent = dim_latent, latent_self_attn_depth = latent_self_attn_depth, patches_self_attn = patches_self_attn, **attn_kwargs) for _ in range(depth)])
 
     @property
     def device(self):
