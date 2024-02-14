@@ -700,8 +700,8 @@ class GaussianDiffusion(nn.Module):
 
             # get alpha sigma of time and next time
 
-            alpha, sigma = gamma_to_alpha_sigma(gamma, self.scale)
-            alpha_next, sigma_next = gamma_to_alpha_sigma(gamma_next, self.scale)
+            alpha, sigma = gamma_to_alpha_sigma(gamma)
+            alpha_next, sigma_next = gamma_to_alpha_sigma(gamma_next)
 
             # calculate x0 and noise
 
@@ -762,8 +762,8 @@ class GaussianDiffusion(nn.Module):
 
             padded_gamma, padded_gamma_next = map(partial(right_pad_dims_to, img), (gamma, gamma_next))
 
-            alpha, sigma = gamma_to_alpha_sigma(padded_gamma, self.scale)
-            alpha_next, sigma_next = gamma_to_alpha_sigma(padded_gamma_next, self.scale)
+            alpha, sigma = gamma_to_alpha_sigma(padded_gamma)
+            alpha_next, sigma_next = gamma_to_alpha_sigma(padded_gamma_next)
 
             # add the time delay
 
