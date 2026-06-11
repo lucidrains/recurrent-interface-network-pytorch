@@ -166,3 +166,19 @@ sampled_images.shape # (4, 3, 128, 128)
     year    = {2023}
 }
 ```
+
+```bibtex
+@inproceedings{Locatello2020ObjectCentricLW,
+    title   = {Object-Centric Learning with Slot Attention},
+    author  = {Francesco Locatello and Dirk Weissenborn and Thomas Unterthiner and Aravindh Mahendran and Georg Heigold and Jakob Uszkoreit and Alexey Dosovitskiy and Thomas Kipf},
+    year    = {2020}
+}
+```
+
+```bibtex
+@inproceedings{Wu2023InvertedAttention,
+    title   = {Inverted-Attention Transformers can Learn Object Representations: Insights from Slot Attention},
+    author  = {Yi-Fu Wu and Klaus Greff and Gamaleldin Fathy Elsayed and Michael Curtis Mozer and Thomas Kipf and Sjoerd van Steenkiste},
+    year    = {2023}
+}
+```

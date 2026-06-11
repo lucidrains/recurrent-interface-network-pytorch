@@ -17,6 +17,9 @@ FlashAttentionConfig = namedtuple('FlashAttentionConfig', ['enable_flash', 'enab
 def exists(val):
     return val is not None
 
+def l1norm(t, dim = -1, eps = 1e-8):
+    return F.normalize(t, p = 1, dim = dim, eps = eps)
+
 def once(fn):
     called = False
     @wraps(fn)
@@ -36,14 +39,18 @@ class Attend(nn.Module):
     def __init__(
         self,
         dropout = 0.,
-        flash = False
+        flash = False,
+        inverted_attention = False
     ):
         super().__init__()
         self.dropout = dropout
         self.attn_dropout = nn.Dropout(dropout)
 
+        self.inverted_attention = inverted_attention
+
         self.flash = flash
         assert not (flash and version.parse(torch.__version__) < version.parse('2.0.0')), 'in order to use flash attention, you must be using pytorch 2.0 or above'
+        assert not (flash and inverted_attention), 'flash attention not compatible with inverted attention'
 
         # determine efficient attention configs for cuda and cpu
 
@@ -116,7 +123,15 @@ class Attend(nn.Module):
 
         # attention
 
-        attn = sim.softmax(dim=-1)
+        attn_dim = -2 if self.inverted_attention else -1
+        attn = sim.softmax(dim = attn_dim)
+
+        if self.inverted_attention:
+            if exists(mask):
+                attn = attn.masked_fill(~mask, 0.)
+
+            attn = l1norm(attn)
+
         attn = self.attn_dropout(attn)
 
         # aggregate values

@@ -189,7 +189,8 @@ class Attention(nn.Module):
         norm_context = False,
         time_cond_dim = None,
         flash = False,
-        qk_norm = False
+        qk_norm = False,
+        inverted_attention = False
     ):
         super().__init__()
         hidden_dim = dim_head * heads
@@ -222,7 +223,7 @@ class Attention(nn.Module):
             self.q_norm = MultiHeadedRMSNorm(dim_head, heads)
             self.k_norm = MultiHeadedRMSNorm(dim_head, heads)
 
-        self.attend = Attend(flash = flash)
+        self.attend = Attend(flash = flash, inverted_attention = inverted_attention)
 
     def forward(
         self,
@@ -316,12 +317,13 @@ class RINBlock(nn.Module):
         dim_latent = None,
         final_norm = True,
         patches_self_attn = True,
+        inverted_cross_attn = False,
         **attn_kwargs
     ):
         super().__init__()
         dim_latent = default(dim_latent, dim)
 
-        self.latents_attend_to_patches = Attention(dim_latent, dim_context = dim, norm = True, norm_context = True, **attn_kwargs)
+        self.latents_attend_to_patches = Attention(dim_latent, dim_context = dim, norm = True, norm_context = True, inverted_attention = inverted_cross_attn, **attn_kwargs)
         self.latents_cross_attn_ff = FeedForward(dim_latent)
 
         self.latent_self_attns = nn.ModuleList([])
@@ -388,6 +390,7 @@ class RIN(nn.Module):
         latent_token_time_cond = False, # whether to use 1 latent token as time conditioning, or do it the adaptive layernorm way (which is highly effective as shown by some other papers "Paella" - Dominic Rampas et al.)
         dual_patchnorm = True,
         patches_self_attn = True,       # the self attention in this repository is not strictly with the design proposed in the paper. offer way to remove it, in case it is the source of instability
+        inverted_cross_attn = False,
         **attn_kwargs
     ):
         super().__init__()
@@ -471,7 +474,7 @@ class RIN(nn.Module):
         if not latent_token_time_cond:
             attn_kwargs = {**attn_kwargs, 'time_cond_dim': time_dim}
 
-        self.blocks = nn.ModuleList([RINBlock(dim, dim_latent = dim_latent, latent_self_attn_depth = latent_self_attn_depth, patches_self_attn = patches_self_attn, **attn_kwargs) for _ in range(depth)])
+        self.blocks = nn.ModuleList([RINBlock(dim, dim_latent = dim_latent, latent_self_attn_depth = latent_self_attn_depth, patches_self_attn = patches_self_attn, inverted_cross_attn = inverted_cross_attn, **attn_kwargs) for _ in range(depth)])
 
     @property
     def device(self):
@@ -927,8 +930,9 @@ class Trainer(object):
     def __init__(
         self,
         diffusion_model: GaussianDiffusion,
-        folder,
+        folder = None,
         *,
+        dataset = None,
         train_batch_size = 16,
         gradient_accumulate_every = 1,
         augment_horizontal_flip = True,
@@ -969,7 +973,12 @@ class Trainer(object):
 
         # dataset and dataloader
 
-        self.ds = Dataset(folder, self.image_size, augment_horizontal_flip = augment_horizontal_flip, convert_image_to = convert_image_to)
+        if exists(dataset):
+            self.ds = dataset
+        else:
+            assert exists(folder), 'folder must be specified if dataset is not passed in'
+            self.ds = Dataset(folder, self.image_size, augment_horizontal_flip = augment_horizontal_flip, convert_image_to = convert_image_to)
+
         dl = DataLoader(self.ds, batch_size = train_batch_size, shuffle = True, pin_memory = True, num_workers = cpu_count())
 
         dl = self.accelerator.prepare(dl)
